@@ -72,6 +72,36 @@ _COMPARISON_IMAGE_SUBDIR = "images"
 # on every CI run. (NVBUG#6152566)
 _FLAKY_MARK = pytest.mark.flaky(max_runs=3, min_passes=1)
 
+_OVRTX_RENDERER_OUTPUT_DATA_TYPES = (
+    # Keep this in sync with OVRTXRenderer.supported_output_types().
+    "rgba",
+    "rgb",
+    "rgb_hdr",
+    "albedo",
+    "simple_shading_constant_diffuse",
+    "simple_shading_diffuse_mdl",
+    "simple_shading_full_mdl",
+    "semantic_segmentation",
+    "depth",
+    "distance_to_image_plane",
+    "distance_to_camera",
+)
+
+
+def _make_golden_image_params(renderer: str, physics_backend: str) -> list[pytest.param]:
+    """Create golden-image parameter entries for every supported output type."""
+    return [
+        pytest.param(
+            physics_backend,
+            f"{renderer}_renderer",
+            data_type,
+            id=f"{physics_backend}-{renderer}-{data_type}",
+            marks=_FLAKY_MARK,
+        )
+        for data_type in _OVRTX_RENDERER_OUTPUT_DATA_TYPES
+    ]
+
+
 PHYSICS_RENDERER_AOV_COMBINATIONS = [
     # physx + isaacsim_rtx_renderer
     pytest.param(
@@ -190,105 +220,9 @@ PHYSICS_RENDERER_AOV_COMBINATIONS = [
 
 KITLESS_PHYSICS_RENDERER_AOV_COMBINATIONS = [
     # ovphysx + ovrtx_renderer
-    pytest.param(
-        "ovphysx",
-        "ovrtx_renderer",
-        "rgb",
-        id="ovphysx-ovrtx-rgb",
-        marks=_FLAKY_MARK,
-    ),
-    pytest.param(
-        "ovphysx",
-        "ovrtx_renderer",
-        "albedo",
-        id="ovphysx-ovrtx-albedo",
-        marks=_FLAKY_MARK,
-    ),
-    pytest.param(
-        "ovphysx",
-        "ovrtx_renderer",
-        "depth",
-        id="ovphysx-ovrtx-depth",
-        marks=_FLAKY_MARK,
-    ),
-    pytest.param(
-        "ovphysx",
-        "ovrtx_renderer",
-        "simple_shading_constant_diffuse",
-        id="ovphysx-ovrtx-simple_shading_constant_diffuse",
-        marks=_FLAKY_MARK,
-    ),
-    pytest.param(
-        "ovphysx",
-        "ovrtx_renderer",
-        "simple_shading_diffuse_mdl",
-        id="ovphysx-ovrtx-simple_shading_diffuse_mdl",
-        marks=_FLAKY_MARK,
-    ),
-    pytest.param(
-        "ovphysx",
-        "ovrtx_renderer",
-        "simple_shading_full_mdl",
-        id="ovphysx-ovrtx-simple_shading_full_mdl",
-        marks=_FLAKY_MARK,
-    ),
-    pytest.param(
-        "ovphysx",
-        "ovrtx_renderer",
-        "semantic_segmentation",
-        id="ovphysx-ovrtx-semantic_segmentation",
-        marks=_FLAKY_MARK,
-    ),
+    *_make_golden_image_params("ovrtx", "ovphysx"),
     # newton + ovrtx_renderer
-    pytest.param(
-        "newton",
-        "ovrtx_renderer",
-        "rgb",
-        id="newton-ovrtx-rgb",
-        marks=_FLAKY_MARK,
-    ),
-    pytest.param(
-        "newton",
-        "ovrtx_renderer",
-        "albedo",
-        id="newton-ovrtx-albedo",
-        marks=_FLAKY_MARK,
-    ),
-    pytest.param(
-        "newton",
-        "ovrtx_renderer",
-        "depth",
-        id="newton-ovrtx-depth",
-        marks=_FLAKY_MARK,
-    ),
-    pytest.param(
-        "newton",
-        "ovrtx_renderer",
-        "simple_shading_constant_diffuse",
-        id="newton-ovrtx-simple_shading_constant_diffuse",
-        marks=_FLAKY_MARK,
-    ),
-    pytest.param(
-        "newton",
-        "ovrtx_renderer",
-        "simple_shading_diffuse_mdl",
-        id="newton-ovrtx-simple_shading_diffuse_mdl",
-        marks=_FLAKY_MARK,
-    ),
-    pytest.param(
-        "newton",
-        "ovrtx_renderer",
-        "simple_shading_full_mdl",
-        id="newton-ovrtx-simple_shading_full_mdl",
-        marks=_FLAKY_MARK,
-    ),
-    pytest.param(
-        "newton",
-        "ovrtx_renderer",
-        "semantic_segmentation",
-        id="newton-ovrtx-semantic_segmentation",
-        marks=_FLAKY_MARK,
-    ),
+    *_make_golden_image_params("ovrtx", "newton"),
     # ovphysx + newton_renderer (warp)
     pytest.param(
         "ovphysx",
@@ -336,11 +270,13 @@ def maybe_save_stage(test_name: str, physics_backend: str, renderer: str, data_t
 def _apply_overrides_to_env_cfg(env_cfg: Any, override_args: list[str]) -> Any:
     """Apply override args to env_cfg using parse_overrides and apply_overrides."""
     from isaaclab_tasks.utils.hydra import apply_overrides, collect_presets, parse_overrides
+    print(f"Override args: {override_args}")
 
     presets = {"env": collect_presets(env_cfg)}
     global_presets, preset_sel, preset_scalar, _ = parse_overrides(override_args, presets)
     hydra_cfg = {"env": env_cfg.to_dict()}
     env_cfg, _ = apply_overrides(env_cfg, None, hydra_cfg, global_presets, preset_sel, preset_scalar, presets)
+    print(f"Env cfg: {hydra_cfg}, {env_cfg}")
     return env_cfg
 
 
@@ -724,8 +660,10 @@ def validate_camera_outputs(
         result_image = Image.fromarray(ndarr)
 
         golden_path = os.path.join(golden_image_dir, f"{physics_backend}-{renderer}-{data_type}.png")
+        print(f"golden path: {golden_path}")
         if not os.path.exists(golden_path):
             failed_data_types[data_type] = f"Golden image not found at {golden_path}."
+            print(f"Saving golden path: {golden_path}")
             result_image.save(golden_path)
             continue
 

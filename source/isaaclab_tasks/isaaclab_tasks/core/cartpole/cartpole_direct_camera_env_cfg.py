@@ -35,10 +35,14 @@ class CartpoleTiledCameraCfg(PresetCfg):
     default = BaseCartpoleTiledCameraCfg(data_types=["rgb"])
     depth = BaseCartpoleTiledCameraCfg(data_types=["depth"])
     albedo = BaseCartpoleTiledCameraCfg(data_types=["albedo"])
+    rgba = BaseCartpoleTiledCameraCfg(data_types=["rgba"])
+    rgb_hdr = BaseCartpoleTiledCameraCfg(data_types=["rgb_hdr"])
     semantic_segmentation = BaseCartpoleTiledCameraCfg(data_types=["semantic_segmentation"])
     simple_shading_constant_diffuse = BaseCartpoleTiledCameraCfg(data_types=["simple_shading_constant_diffuse"])
     simple_shading_diffuse_mdl = BaseCartpoleTiledCameraCfg(data_types=["simple_shading_diffuse_mdl"])
     simple_shading_full_mdl = BaseCartpoleTiledCameraCfg(data_types=["simple_shading_full_mdl"])
+    distance_to_image_plane = BaseCartpoleTiledCameraCfg(data_types=["distance_to_image_plane"])
+    distance_to_camera = BaseCartpoleTiledCameraCfg(data_types=["distance_to_camera"])
     rgb = default
 
 
@@ -74,7 +78,11 @@ class CartpoleCameraEnvCfg(PresetCfg):
     default = BaseCartpoleCameraEnvCfg()
     depth = BaseCartpoleCameraEnvCfg(observation_space=[1, 100, 100])
     albedo = BaseCartpoleCameraEnvCfg()
+    rgba = BaseCartpoleCameraEnvCfg(observation_space=[4, 100, 100])
+    rgb_hdr = BaseCartpoleCameraEnvCfg()
     semantic_segmentation = BaseCartpoleCameraEnvCfg(observation_space=[4, 100, 100])
     simple_shading_constant_diffuse = BaseCartpoleCameraEnvCfg()
     simple_shading_diffuse_mdl = BaseCartpoleCameraEnvCfg()
     simple_shading_full_mdl = BaseCartpoleCameraEnvCfg()
+    distance_to_image_plane = BaseCartpoleCameraEnvCfg(observation_space=[1, 100, 100])
+    distance_to_camera = BaseCartpoleCameraEnvCfg(observation_space=[1, 100, 100])
