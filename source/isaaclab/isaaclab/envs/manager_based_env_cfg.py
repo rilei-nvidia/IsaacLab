@@ -25,7 +25,6 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.utils.configclass import configclass
 
-from .common import ViewerCfg
 from .utils.video_recorder_cfg import VideoRecorderCfg
 
 

@@ -15,7 +15,7 @@ from isaaclab.sim import SimulationCfg
 from isaaclab.utils.configclass import configclass
 from isaaclab.utils.noise import NoiseModelCfg
 
-from .common import SpaceType, ViewerCfg
+from .common import SpaceType
 from .utils.video_recorder_cfg import VideoRecorderCfg
 
 
