@@ -97,6 +97,7 @@ def test_version_single_source_matches_literal_pins():
 
     assert spec("ovphysx") in optional["ov"]
     assert spec("ovrtx") in optional["rtx"]
+    assert spec("ovstage") in optional["ovstage"]
 
     # uv torch-stack overrides mirror the table.
     for package in ("torch", "torchvision", "torchaudio"):
