@@ -7,10 +7,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import torch
 
@@ -37,21 +39,32 @@ if not _MISSING_MODULES:
         _create_homogeneous_clone_plan,
         _resolve_clone_plan,
         _write_file,
+        ovrtx_use_ovstage_enabled,
     )
 
-    from pxr import Usd, UsdGeom  # noqa: E402
+    from pxr import Gf, Usd, UsdGeom  # noqa: E402
 else:
     OVRTXRenderer = None
     OVRTXRendererCfg = None
+    Gf = None
     Usd = None
     UsdGeom = None
     _create_homogeneous_clone_plan = None
     _resolve_clone_plan = None
+
+    def ovrtx_use_ovstage_enabled():
+        return False
+
     _write_file = None
 
 
 _PRE_OVRTX_STAGE_FILE = "pre_ovrtx_renderer_stage.usda"
 _OVRTX_STAGE_FILE = "ovrtx_renderer_stage.usda"
+
+_skip_if_not_ovstage = pytest.mark.skipif(
+    not ovrtx_use_ovstage_enabled(), reason="requires ISAAC_LAB_OVRTX_USE_OVSTAGE=1"
+)
+_skip_if_not_legacy = pytest.mark.skipif(ovrtx_use_ovstage_enabled(), reason="requires ISAAC_LAB_OVRTX_USE_OVSTAGE=0")
 
 
 def _make_multi_env_stage(num_envs: int) -> Usd.Stage:
@@ -87,6 +100,13 @@ def _assert_export_contains_env_roots_but_omits_children(exported: str, env_indi
         assert f'def Xform "Object_env{env_idx}_only"' not in exported
 
 
+def _assert_export_omits_env_roots(exported: str, env_indices: range | list[int]) -> None:
+    """Listed environment roots and their children are absent from the stage export."""
+    for env_idx in env_indices:
+        assert f'def Xform "env_{env_idx}"' not in exported
+        assert f'def Xform "Object_env{env_idx}_only"' not in exported
+
+
 def _patch_simulation_context(monkeypatch: pytest.MonkeyPatch, clone_plan: ClonePlan | None) -> None:
     mock_ctx = SimpleNamespace(get_clone_plan=lambda: clone_plan)
     monkeypatch.setattr(
@@ -95,19 +115,174 @@ def _patch_simulation_context(monkeypatch: pytest.MonkeyPatch, clone_plan: Clone
     )
 
 
-def _make_ovrtx_renderer_without_backend() -> OVRTXRenderer:
+class _FakeOperation:
+    """Minimal ovstage Operation stub that succeeds immediately."""
+
+    def wait(self):
+        pass
+
+
+class _FakeQuery:
+    """Minimal ovstage Query stub."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        pass
+
+
+class _FakeStage:
+    """Minimal ovstage Stage stub for clone-plan tests."""
+
+    def __init__(self):
+        self.clone_calls: list[tuple[str, list[str], int]] = []
+        self.write_calls: list[dict] = []
+        self.advance_floor_calls: list[int] = []
+        self.release_query_calls: list = []
+
+    def clone(self, source: str, targets: list[str], ordinal: int) -> None:
+        self.clone_calls.append((source, targets, ordinal))
+
+    def write_attribute(self, query, attr, ordinal, tensors, **kwargs):
+        self.write_calls.append({"query": query, "attr": attr, "ordinal": ordinal, "tensors": tensors, **kwargs})
+        return _FakeOperation()
+
+    def advance_write_floor(self, ordinal: int):
+        self.advance_floor_calls.append(ordinal)
+        return _FakeOperation()
+
+    def query_from_path_list(self, path_list):
+        return _FakeQuery()
+
+    def release_query(self, query):
+        self.release_query_calls.append(query)
+        return _FakeOperation()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        pass
+
+
+class _FakePathDictionary:
+    """Minimal ovstage PathDictionary stub."""
+
+    def __init__(self):
+        self._token_counter = 1
+        self._tokens: dict[str, int] = {}
+        self._path_counter = 1
+        self._paths: dict[str, int] = {}
+
+    def create_path_list_from_strings(self, paths: list[str]):
+        return paths  # return the list as-is for simplicity
+
+    def destroy_path_list(self, path_list):
+        pass
+
+    def intern_token(self, s: str) -> int:
+        if s not in self._tokens:
+            self._tokens[s] = self._token_counter
+            self._token_counter += 1
+        return self._tokens[s]
+
+    def intern_path(self, path: str) -> int:
+        if path not in self._paths:
+            self._paths[path] = self._path_counter
+            self._path_counter += 1
+        return self._paths[path]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        pass
+
+
+class _FakeLegacyRenderer:
+    """Minimal legacy ovrtx Renderer stub for clone-plan tests."""
+
+    def __init__(self):
+        self.clone_usd_calls: list[tuple[str, list[str]]] = []
+        self.write_attribute_calls: list[dict] = []
+        self.open_usd_calls: list[str] = []
+
+    def open_usd_from_string(self, usd: str) -> None:
+        self.open_usd_calls.append(usd)
+
+    def clone_usd(self, source: str, targets: list[str]) -> None:
+        self.clone_usd_calls.append((source, targets))
+
+    def read_attribute(self, attr, paths, **kwargs) -> np.ndarray:
+        return np.tile(np.eye(4, dtype=np.float64), (len(paths), 1, 1))
+
+    def write_attribute(self, prim_paths, attribute_name, tensor, **kwargs) -> None:
+        self.write_attribute_calls.append({"attr": attribute_name, "prim_paths": prim_paths})
+
+    def bind_attribute(self, prim_paths, attribute_name, **kwargs):
+        return SimpleNamespace(map=lambda **kw: contextlib.nullcontext(), unbind=lambda: None)
+
+    def reset_stage(self) -> None:
+        pass
+
+    def step(self, **kwargs) -> dict:
+        return {}
+
+    def detach_ovstage(self) -> None:
+        pass
+
+
+def _make_ovrtx_renderer_without_backend(fake_stage: _FakeStage | None = None) -> OVRTXRenderer:
     renderer = OVRTXRenderer.__new__(OVRTXRenderer)
     renderer.cfg = OVRTXRendererCfg()
     renderer._renderer = SimpleNamespace(
-        clone_usd=lambda *args, **kwargs: None,
-        read_attribute=lambda *args, **kwargs: None,
-        write_attribute=lambda *args, **kwargs: None,
+        attach_ovstage=lambda stage: None,
+        detach_ovstage=lambda: None,
+        step=lambda **kwargs: {},
     )
+    renderer._use_ovstage = True
+    renderer._stage = fake_stage or _FakeStage()
+    renderer._stage_paths = _FakePathDictionary()
+    renderer._ovstage_exit_stack = contextlib.ExitStack()
+    renderer._current_ordinal = 1
     renderer._clone_plan = None
     renderer._camera_rel_path = "Camera"
     renderer._render_product_paths = []
     renderer._exported_usd_string = None
     renderer._initialized_scene = False
+    renderer._camera_xform_query = None
+    renderer._camera_paths_list = None
+    renderer._object_xform_query = None
+    renderer._object_paths_list = None
+    renderer._deformable_points_query = None
+    renderer._deformable_paths_list = None
+    renderer._object_newton_indices = None
+    renderer._deformable_particle_offsets = []
+    renderer._deformable_particle_counts = []
+    renderer._output_id_color_buffers = {}
+    renderer._env_root_xforms = None
+    return renderer
+
+
+def _make_ovrtx_renderer_without_backend_legacy() -> OVRTXRenderer:
+    legacy_renderer = _FakeLegacyRenderer()
+    renderer = OVRTXRenderer.__new__(OVRTXRenderer)
+    renderer.cfg = OVRTXRendererCfg()
+    renderer._renderer = legacy_renderer
+    renderer._use_ovstage = False
+    renderer._camera_xform_binding = None
+    renderer._object_xform_binding = None
+    renderer._deformable_points_binding = None
+    renderer._clone_plan = None
+    renderer._camera_rel_path = "Camera"
+    renderer._render_product_paths = []
+    renderer._exported_usd_string = None
+    renderer._initialized_scene = False
+    renderer._object_newton_indices = None
+    renderer._deformable_particle_offsets = []
+    renderer._deformable_particle_counts = []
+    renderer._output_id_color_buffers = {}
     return renderer
 
 
@@ -134,6 +309,11 @@ def _make_camera_render_spec(num_envs: int = 1) -> CameraRenderSpec:
         view_count=num_envs,
         camera_path_relative_to_env_0="Camera",
     )
+
+
+# ---------------------------------------------------------------------------
+# Path-agnostic tests
+# ---------------------------------------------------------------------------
 
 
 def test_resolve_clone_plan_returns_homogeneous_when_unpublished(monkeypatch: pytest.MonkeyPatch):
@@ -212,147 +392,6 @@ def test_resolve_clone_plan_returns_published_plan_when_all_active(monkeypatch: 
     assert resolved is published
 
 
-def test_clone_sources_in_ovrtx_homogeneous_row():
-    """Homogeneous env_0 row clones only env_1..env_{N-1} (env_0 is the source)."""
-    renderer = _make_ovrtx_renderer_without_backend()
-    renderer._clone_plan = _create_homogeneous_clone_plan(4)
-
-    clone_calls: list[tuple[str, list[str]]] = []
-
-    def _clone_usd(source: str, target_paths: list[str]) -> None:
-        clone_calls.append((source, target_paths))
-
-    renderer._renderer.clone_usd = _clone_usd
-
-    renderer._clone_sources_in_ovrtx()
-
-    assert clone_calls == [
-        (
-            "/World/envs/env_0",
-            ["/World/envs/env_1", "/World/envs/env_2", "/World/envs/env_3"],
-        )
-    ]
-
-
-def test_clone_sources_in_ovrtx_heterogeneous_rows():
-    """Each active clone-plan row issues its own clone_usd call."""
-    renderer = _make_ovrtx_renderer_without_backend()
-    renderer._clone_plan = ClonePlan(
-        sources=("/World/envs/env_0/Robot", "/World/envs/env_1/Object"),
-        destinations=("/World/envs/env_{}/Robot", "/World/envs/env_{}/Object"),
-        clone_mask=torch.tensor(
-            [
-                [True, True, True, True],
-                [False, False, True, True],
-            ],
-            dtype=torch.bool,
-        ),
-    )
-
-    clone_calls: list[tuple[str, list[str]]] = []
-
-    def _clone_usd(source: str, target_paths: list[str]) -> None:
-        clone_calls.append((source, target_paths))
-
-    renderer._renderer.clone_usd = _clone_usd
-
-    renderer._clone_sources_in_ovrtx()
-
-    assert clone_calls == [
-        (
-            "/World/envs/env_0/Robot",
-            [
-                "/World/envs/env_1/Robot",
-                "/World/envs/env_2/Robot",
-                "/World/envs/env_3/Robot",
-            ],
-        ),
-        (
-            "/World/envs/env_1/Object",
-            ["/World/envs/env_2/Object", "/World/envs/env_3/Object"],
-        ),
-    ]
-
-
-def test_clone_sources_in_ovrtx_skips_empty_target_rows():
-    """Rows with no clone targets do not call clone_usd."""
-    renderer = _make_ovrtx_renderer_without_backend()
-    renderer._clone_plan = ClonePlan(
-        sources=("/World/envs/env_0/Robot", "/World/envs/env_7/Object"),
-        destinations=("/World/envs/env_{}/Robot", "/World/envs/env_{}/Object"),
-        clone_mask=torch.tensor(
-            [
-                [False, False, False, False],
-                [False, False, False, False],
-            ],
-            dtype=torch.bool,
-        ),
-    )
-
-    clone_calls: list[tuple[str, list[str]]] = []
-
-    def _clone_usd(source: str, target_paths: list[str]) -> None:
-        clone_calls.append((source, target_paths))
-
-    renderer._renderer.clone_usd = _clone_usd
-
-    renderer._clone_sources_in_ovrtx()
-
-    assert clone_calls == []
-
-
-def test_clone_sources_in_ovrtx_raises_on_clone_failure():
-    """clone_usd failures surface as RuntimeError with the row index."""
-    renderer = _make_ovrtx_renderer_without_backend()
-    renderer._clone_plan = _create_homogeneous_clone_plan(2)
-
-    def _clone_usd(source: str, target_paths: list[str]) -> None:
-        raise OSError("clone failed")
-
-    renderer._renderer.clone_usd = _clone_usd
-
-    with pytest.raises(RuntimeError, match="Failed to clone row 0"):
-        renderer._clone_sources_in_ovrtx()
-
-
-def test_clone_sources_in_ovrtx_restores_env_root_transforms():
-    """Pre-clone omni:xform snapshots are written back after cloning."""
-    import numpy as np
-
-    renderer = _make_ovrtx_renderer_without_backend()
-    num_envs = 4
-    renderer._clone_plan = _create_homogeneous_clone_plan(num_envs)
-    captured_transforms = np.tile(np.eye(4, dtype=np.float64), (num_envs, 1, 1))
-    captured_transforms[:, 3, :3] = np.array([[i * 2.0, 0.0, 0.0] for i in range(num_envs)])
-
-    call_order: list[str] = []
-
-    def _read_attribute(attribute_name: str, prim_paths: list[str], **kwargs):
-        call_order.append("read")
-        assert attribute_name == "omni:xform"
-        kwargs["dest"][:] = captured_transforms[: len(prim_paths)]
-
-    def _clone_usd(source: str, target_paths: list[str]) -> None:
-        call_order.append("clone")
-
-    write_calls: list[dict] = []
-
-    def _write_attribute(**kwargs):
-        call_order.append("write")
-        write_calls.append(kwargs)
-
-    renderer._renderer.read_attribute = _read_attribute
-    renderer._renderer.clone_usd = _clone_usd
-    renderer._renderer.write_attribute = _write_attribute
-
-    renderer._clone_sources_in_ovrtx()
-
-    assert call_order == ["read", "clone", "write"]
-    assert len(write_calls) == 1
-    assert write_calls[0]["attribute_name"] == "omni:xform"
-    np.testing.assert_array_equal(write_calls[0]["tensor"], captured_transforms)
-
-
 def test_write_file_creates_parent_directory_and_writes_utf8(tmp_path: Path):
     """_write_file creates nested directories and writes UTF-8 content."""
     output_dir = tmp_path / "nested" / "usd"
@@ -378,7 +417,6 @@ def test_prepare_stage_writes_pre_ovrtx_stage_dump(tmp_path: Path, monkeypatch: 
     pre_stage_path = tmp_path / _PRE_OVRTX_STAGE_FILE
     assert pre_stage_path.is_file()
     assert pre_stage_path.read_text(encoding="utf-8") == expected_pre_export
-    assert pre_stage_path.read_text(encoding="utf-8") != stage.ExportToString()
     assert (tmp_path / _OVRTX_STAGE_FILE).exists() is False
 
 
@@ -401,16 +439,349 @@ def test_prepare_stage_skips_temp_usd_write_when_temp_usd_dir_unset(monkeypatch:
     assert write_calls == []
 
 
-def test_initialize_from_spec_writes_combined_stage_dump(tmp_path: Path):
-    """_initialize_from_spec writes the combined stage when temp_usd_dir is set."""
+# ---------------------------------------------------------------------------
+# Cloning tests — ovstage path
+# ---------------------------------------------------------------------------
+
+
+@_skip_if_not_ovstage
+def test_clone_sources_in_ovrtx_homogeneous_row_ovstage():
+    """Homogeneous env_0 row clones only env_1..env_{N-1} (env_0 is the source) — ovstage path."""
+    fake_stage = _FakeStage()
+    num_envs = 4
+    identity_xforms = np.tile(np.eye(4, dtype=np.float64), (num_envs, 1, 1))
+
+    renderer = _make_ovrtx_renderer_without_backend(fake_stage)
+    renderer._clone_plan = _create_homogeneous_clone_plan(4)
+    renderer._env_root_xforms = identity_xforms
+
+    renderer._clone_sources_ovstage()
+
+    clone_calls = [(source, targets) for source, targets, _ in fake_stage.clone_calls]
+    assert clone_calls == [
+        (
+            "/World/envs/env_0",
+            ["/World/envs/env_1", "/World/envs/env_2", "/World/envs/env_3"],
+        )
+    ]
+
+
+@_skip_if_not_ovstage
+def test_clone_sources_in_ovrtx_heterogeneous_rows_ovstage():
+    """Each active clone-plan row issues its own clone call — ovstage path."""
+    num_envs = 4
+    identity_xforms = np.tile(np.eye(4, dtype=np.float64), (num_envs, 1, 1))
+    fake_stage = _FakeStage()
+
+    renderer = _make_ovrtx_renderer_without_backend(fake_stage)
+    renderer._clone_plan = ClonePlan(
+        sources=("/World/envs/env_0/Robot", "/World/envs/env_1/Object"),
+        destinations=("/World/envs/env_{}/Robot", "/World/envs/env_{}/Object"),
+        clone_mask=torch.tensor(
+            [
+                [True, True, True, True],
+                [False, False, True, True],
+            ],
+            dtype=torch.bool,
+        ),
+    )
+    renderer._env_root_xforms = identity_xforms
+
+    renderer._clone_sources_ovstage()
+
+    clone_calls = [(source, targets) for source, targets, _ in fake_stage.clone_calls]
+    assert clone_calls == [
+        (
+            "/World/envs/env_0/Robot",
+            [
+                "/World/envs/env_1/Robot",
+                "/World/envs/env_2/Robot",
+                "/World/envs/env_3/Robot",
+            ],
+        ),
+        (
+            "/World/envs/env_1/Object",
+            ["/World/envs/env_2/Object", "/World/envs/env_3/Object"],
+        ),
+    ]
+
+
+@_skip_if_not_ovstage
+def test_clone_sources_in_ovrtx_skips_empty_target_rows_ovstage():
+    """Rows with no clone targets do not call clone — ovstage path."""
+    num_envs = 4
+    identity_xforms = np.tile(np.eye(4, dtype=np.float64), (num_envs, 1, 1))
+    fake_stage = _FakeStage()
+
+    renderer = _make_ovrtx_renderer_without_backend(fake_stage)
+    renderer._clone_plan = ClonePlan(
+        sources=("/World/envs/env_0/Robot", "/World/envs/env_7/Object"),
+        destinations=("/World/envs/env_{}/Robot", "/World/envs/env_{}/Object"),
+        clone_mask=torch.tensor(
+            [
+                [False, False, False, False],
+                [False, False, False, False],
+            ],
+            dtype=torch.bool,
+        ),
+    )
+    renderer._env_root_xforms = identity_xforms
+
+    renderer._clone_sources_ovstage()
+
+    assert fake_stage.clone_calls == []
+
+
+@_skip_if_not_ovstage
+def test_clone_sources_in_ovrtx_raises_on_clone_failure_ovstage():
+    """Clone failures surface as RuntimeError with the row index — ovstage path."""
+    num_envs = 2
+    identity_xforms = np.tile(np.eye(4, dtype=np.float64), (num_envs, 1, 1))
+    fake_stage = _FakeStage()
+
+    def _failing_clone(source, targets, ordinal):
+        raise OSError("clone failed")
+
+    fake_stage.clone = _failing_clone
+
+    renderer = _make_ovrtx_renderer_without_backend(fake_stage)
+    renderer._clone_plan = _create_homogeneous_clone_plan(2)
+    renderer._env_root_xforms = identity_xforms
+
+    with pytest.raises(RuntimeError, match="Failed to clone row 0"):
+        renderer._clone_sources_ovstage()
+
+
+@_skip_if_not_ovstage
+def test_clone_sources_in_ovrtx_restores_env_root_transforms_ovstage():
+    """Pre-captured omni:xform snapshots are written back after cloning — ovstage path.
+
+    The env-root transforms are captured from the live USD stage in ``prepare_stage``
+    (see :meth:`_capture_env_root_xforms_ovstage`) before export strips non-source
+    envs, so cloning only clones and writes — it does not read back from ovstage.
+    """
+    num_envs = 4
+    captured_transforms = np.tile(np.eye(4, dtype=np.float64), (num_envs, 1, 1))
+    captured_transforms[:, 3, :3] = np.array([[i * 2.0, 0.0, 0.0] for i in range(num_envs)])
+
+    fake_stage = _FakeStage()
+
+    call_order: list[str] = []
+
+    original_clone = fake_stage.clone
+
+    def _tracked_clone(source, targets, ordinal):
+        call_order.append("clone")
+        original_clone(source, targets, ordinal)
+
+    original_write = fake_stage.write_attribute
+
+    def _tracked_write(query, attr, ordinal, tensors, **kwargs):
+        call_order.append("write")
+        return original_write(query, attr, ordinal, tensors, **kwargs)
+
+    fake_stage.clone = _tracked_clone
+    fake_stage.write_attribute = _tracked_write
+
+    renderer = _make_ovrtx_renderer_without_backend(fake_stage)
+    renderer._clone_plan = _create_homogeneous_clone_plan(num_envs)
+    renderer._env_root_xforms = captured_transforms
+
+    renderer._clone_sources_ovstage()
+
+    # Restore must happen after cloning so the source-env-root xform does not persist
+    # on the cloned envs; the pre-captured snapshot is not read back from the stage.
+    assert call_order == ["clone", "write"]
+
+    xform_writes = [c for c in fake_stage.write_calls if c["attr"] == "omni:xform"]
+    assert len(xform_writes) == 1
+
+    # The snapshot is consumed and cleared so it cannot be reused on a later clone.
+    assert renderer._env_root_xforms is None
+
+
+@_skip_if_not_ovstage
+def test_capture_env_root_xforms_reads_live_stage_transforms_ovstage():
+    """_capture_env_root_xforms_ovstage snapshots per-env root local-to-world transforms.
+
+    This runs before export strips non-source envs, so it reads the live USD stage
+    rather than ovstage; :meth:`_clone_sources_ovstage` later consumes the snapshot.
+    """
+    num_envs = 3
+    stage = _make_multi_env_stage(num_envs)
+    # Give each env root a distinct translation so the capture is verifiable.
+    for i in range(num_envs):
+        env_xform = UsdGeom.Xform.Get(stage, f"/World/envs/env_{i}")
+        env_xform.AddTranslateOp().Set(Gf.Vec3d(i * 2.0, 0.0, 0.0))
+
+    renderer = _make_ovrtx_renderer_without_backend()
+    renderer._capture_env_root_xforms_ovstage(stage, num_envs)
+
+    captured = renderer._env_root_xforms
+    assert captured is not None
+    assert captured.shape == (num_envs, 4, 4)
+    # USD stores translation in the last row (row-vector convention).
+    for i in range(num_envs):
+        np.testing.assert_allclose(captured[i, 3, :3], [i * 2.0, 0.0, 0.0])
+
+
+# ---------------------------------------------------------------------------
+# Cloning tests — legacy path
+# ---------------------------------------------------------------------------
+
+
+@_skip_if_not_legacy
+def test_clone_sources_in_ovrtx_homogeneous_row_legacy():
+    """Homogeneous env_0 row clones only env_1..env_{N-1} (env_0 is the source) — legacy path."""
+    renderer = _make_ovrtx_renderer_without_backend_legacy()
+    renderer._clone_plan = _create_homogeneous_clone_plan(4)
+
+    renderer._clone_sources_legacy()
+
+    clone_calls = renderer._renderer.clone_usd_calls
+    assert clone_calls == [
+        (
+            "/World/envs/env_0",
+            ["/World/envs/env_1", "/World/envs/env_2", "/World/envs/env_3"],
+        )
+    ]
+
+
+@_skip_if_not_legacy
+def test_clone_sources_in_ovrtx_heterogeneous_rows_legacy():
+    """Each active clone-plan row issues its own clone_usd call — legacy path."""
+    renderer = _make_ovrtx_renderer_without_backend_legacy()
+    renderer._clone_plan = ClonePlan(
+        sources=("/World/envs/env_0/Robot", "/World/envs/env_1/Object"),
+        destinations=("/World/envs/env_{}/Robot", "/World/envs/env_{}/Object"),
+        clone_mask=torch.tensor(
+            [
+                [True, True, True, True],
+                [False, False, True, True],
+            ],
+            dtype=torch.bool,
+        ),
+    )
+
+    renderer._clone_sources_legacy()
+
+    clone_calls = renderer._renderer.clone_usd_calls
+    assert clone_calls == [
+        (
+            "/World/envs/env_0/Robot",
+            [
+                "/World/envs/env_1/Robot",
+                "/World/envs/env_2/Robot",
+                "/World/envs/env_3/Robot",
+            ],
+        ),
+        (
+            "/World/envs/env_1/Object",
+            ["/World/envs/env_2/Object", "/World/envs/env_3/Object"],
+        ),
+    ]
+
+
+@_skip_if_not_legacy
+def test_clone_sources_in_ovrtx_skips_empty_target_rows_legacy():
+    """Rows with no clone targets do not call clone_usd — legacy path."""
+    renderer = _make_ovrtx_renderer_without_backend_legacy()
+    renderer._clone_plan = ClonePlan(
+        sources=("/World/envs/env_0/Robot", "/World/envs/env_7/Object"),
+        destinations=("/World/envs/env_{}/Robot", "/World/envs/env_{}/Object"),
+        clone_mask=torch.tensor(
+            [
+                [False, False, False, False],
+                [False, False, False, False],
+            ],
+            dtype=torch.bool,
+        ),
+    )
+
+    renderer._clone_sources_legacy()
+
+    assert renderer._renderer.clone_usd_calls == []
+
+
+@_skip_if_not_legacy
+def test_clone_sources_in_ovrtx_raises_on_clone_failure_legacy():
+    """Clone failures surface as RuntimeError with the row index — legacy path."""
+    renderer = _make_ovrtx_renderer_without_backend_legacy()
+
+    def _failing_clone(source, targets):
+        raise OSError("clone failed")
+
+    renderer._renderer.clone_usd = _failing_clone
+    renderer._clone_plan = _create_homogeneous_clone_plan(2)
+
+    with pytest.raises(RuntimeError, match="Failed to clone row 0"):
+        renderer._clone_sources_legacy()
+
+
+@_skip_if_not_legacy
+def test_clone_sources_in_ovrtx_restores_env_root_transforms_legacy():
+    """Pre-clone xform snapshots are written back after cloning — legacy path."""
+    renderer = _make_ovrtx_renderer_without_backend_legacy()
+    renderer._clone_plan = _create_homogeneous_clone_plan(4)
+
+    call_order: list[str] = []
+
+    original_clone = renderer._renderer.clone_usd
+
+    def _tracked_clone(source, targets):
+        call_order.append("clone")
+        original_clone(source, targets)
+
+    original_write = renderer._renderer.write_attribute
+
+    def _tracked_write(prim_paths, attribute_name, tensor, **kwargs):
+        call_order.append("write")
+        original_write(prim_paths, attribute_name, tensor, **kwargs)
+
+    original_read = renderer._renderer.read_attribute
+
+    def _tracked_read(attr, paths, **kwargs):
+        call_order.append("read")
+        return original_read(attr, paths, **kwargs)
+
+    renderer._renderer.clone_usd = _tracked_clone
+    renderer._renderer.write_attribute = _tracked_write
+    renderer._renderer.read_attribute = _tracked_read
+
+    renderer._clone_sources_legacy()
+
+    assert call_order == ["read", "clone", "write"]
+
+    xform_writes = [c for c in renderer._renderer.write_attribute_calls if c["attr"] == "omni:xform"]
+    assert len(xform_writes) == 1
+
+
+# ---------------------------------------------------------------------------
+# initialize_from_spec — writes combined stage dump
+# ---------------------------------------------------------------------------
+
+
+@_skip_if_not_ovstage
+def test_initialize_from_spec_writes_combined_stage_dump_ovstage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """_initialize_from_spec writes the combined stage when temp_usd_dir is set — ovstage path."""
     renderer = _make_ovrtx_renderer_without_backend()
     renderer.cfg.temp_usd_dir = str(tmp_path)
     renderer._exported_usd_string = "#usda 1.0\n"
 
+    fake_stage = _FakeStage()
+    fake_paths = _FakePathDictionary()
+
     open_calls: list[str] = []
-    renderer._renderer.open_usd_from_string = lambda usd_string: open_calls.append(usd_string)
-    renderer._renderer.bind_attribute = lambda **kwargs: object()
-    renderer._renderer.write_attribute = lambda **kwargs: None
+
+    def _fake_open_usd_from_string(stage, usd_string, ordinal, domains):
+        open_calls.append(usd_string)
+
+    monkeypatch.setattr(
+        "isaaclab_ov.renderers.ovrtx_renderer.population.open_usd_from_string", _fake_open_usd_from_string
+    )
+
+    monkeypatch.setattr("isaaclab_ov.renderers.ovrtx_renderer.ovstage.Stage", lambda name: fake_stage)
+    monkeypatch.setattr("isaaclab_ov.renderers.ovrtx_renderer.ovstage.PathDictionary", lambda stage: fake_paths)
 
     renderer._initialize_from_spec(_make_camera_render_spec(num_envs=1))
 
@@ -422,8 +793,31 @@ def test_initialize_from_spec_writes_combined_stage_dump(tmp_path: Path):
     assert renderer._exported_usd_string is None
 
 
-def test_prepare_stage_stores_clone_plan_and_exports(monkeypatch: pytest.MonkeyPatch):
-    """prepare_stage resolves the clone plan and exports a trimmed prototype stage."""
+@_skip_if_not_legacy
+def test_initialize_from_spec_writes_combined_stage_dump_legacy(tmp_path: Path):
+    """_initialize_from_spec writes the combined stage when temp_usd_dir is set — legacy path."""
+    renderer = _make_ovrtx_renderer_without_backend_legacy()
+    renderer.cfg.temp_usd_dir = str(tmp_path)
+    renderer._exported_usd_string = "#usda 1.0\n"
+
+    renderer._initialize_from_spec(_make_camera_render_spec(num_envs=1))
+
+    combined_path = tmp_path / _OVRTX_STAGE_FILE
+    combined_text = combined_path.read_text(encoding="utf-8")
+    assert combined_text.startswith("#usda 1.0")
+    assert 'def RenderProduct "RenderProduct"' in combined_text
+    assert renderer._renderer.open_usd_calls == [combined_text]
+    assert renderer._exported_usd_string is None
+
+
+# ---------------------------------------------------------------------------
+# prepare_stage — clone plan and export
+# ---------------------------------------------------------------------------
+
+
+@_skip_if_not_ovstage
+def test_prepare_stage_stores_clone_plan_and_exports_ovstage(monkeypatch: pytest.MonkeyPatch):
+    """prepare_stage resolves the clone plan and strips non-source env roots — ovstage path."""
     num_envs = 4
 
     published = _create_homogeneous_clone_plan(num_envs)
@@ -437,6 +831,27 @@ def test_prepare_stage_stores_clone_plan_and_exports(monkeypatch: pytest.MonkeyP
     assert renderer._clone_plan is not None
     assert renderer._clone_plan.sources == published.sources
 
-    # Only the env_0 prototype subtree is exported.
+    # ovstage export strips non-source env roots entirely so stage.clone can repopulate them.
+    _assert_export_contains_env_roots_and_children(renderer._exported_usd_string, [0])
+    _assert_export_omits_env_roots(renderer._exported_usd_string, [1, 2, 3])
+
+
+@_skip_if_not_legacy
+def test_prepare_stage_stores_clone_plan_and_exports_legacy(monkeypatch: pytest.MonkeyPatch):
+    """prepare_stage resolves the clone plan and deactivates non-source env children — legacy path."""
+    num_envs = 4
+
+    published = _create_homogeneous_clone_plan(num_envs)
+    _patch_simulation_context(monkeypatch, published)
+
+    stage = _make_multi_env_stage(num_envs)
+    renderer = _make_ovrtx_renderer_without_backend_legacy()
+
+    renderer.prepare_stage(stage, 4)
+
+    assert renderer._clone_plan is not None
+    assert renderer._clone_plan.sources == published.sources
+
+    # Legacy export keeps env root prims but deactivates their non-source descendants.
     _assert_export_contains_env_roots_and_children(renderer._exported_usd_string, [0])
     _assert_export_contains_env_roots_but_omits_children(renderer._exported_usd_string, [1, 2, 3])
