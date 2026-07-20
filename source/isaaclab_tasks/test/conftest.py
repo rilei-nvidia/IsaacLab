@@ -22,3 +22,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 def enable_scene_partition(monkeypatch):
     """Set ``ISAAC_LAB_ENABLE_ISAAC_RTX_PER_ENV_SCENE_PARTITION=1`` for the duration of one test."""
     monkeypatch.setenv("ISAAC_LAB_ENABLE_ISAAC_RTX_PER_ENV_SCENE_PARTITION", "1")
+
+
+@pytest.fixture(autouse=True)
+def enable_ovstage_for_rendering_tests(request, monkeypatch):
+    """Enable the OVRTX ovstage code path for the rendering-correctness suite only.
+
+    The ``test_rendering_*.py`` tests exercise the ovstage scene-ownership path (ovstage owns the
+    scene, ovrtx renders) by setting ``ISAAC_LAB_OVRTX_USE_OVSTAGE=1``. All other tests are left
+    untouched (ovstage stays opt-in and disabled by default). The variable is restored after each
+    test via ``monkeypatch``.
+    """
+    if request.path.name.startswith("test_rendering_"):
+        monkeypatch.setenv("ISAAC_LAB_OVRTX_USE_OVSTAGE", "1")
