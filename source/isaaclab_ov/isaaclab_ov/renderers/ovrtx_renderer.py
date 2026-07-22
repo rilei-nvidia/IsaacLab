@@ -131,7 +131,10 @@ _USE_OVSTAGE_ENV = "ISAAC_LAB_OVRTX_USE_OVSTAGE"
 
 if _OVSTAGE_AVAILABLE:
     # DLDataType for a 4×4 double matrix (omni:xform column). ovstage stores omni:xform
-    # as one 16-lane float64 element per prim; wp.mat44d maps to the same layout via __dlpack__.
+    # as one 16-lane float64 element per prim. Used only for init-time CPU-side writes
+    # (env root xforms, identity xforms). Per-frame GPU writes use make_dltensor(wp_array)
+    # directly with cuda_stream so ovstage inserts a GPU-side dependency rather than
+    # requiring a host sync.
     _XFORM_DTYPE = DLDataType(code=DLDataTypeCode.kDLFloat, bits=64, lanes=16)
 
     def _xform_tensor_from_numpy(xforms: np.ndarray) -> Any:
@@ -996,17 +999,14 @@ class OVRTXRenderer(BaseRenderer):
             inputs=[object_transforms, self._object_newton_indices, body_q],
             device=self._device,
         )
-        # Synchronize then copy to CPU numpy: ovstage's make_dltensor only accepts the lanes=16
-        # dtype override on numpy arrays, not DLPack producers. wp.mat44d exports as (N,4,4) lanes=1
-        # via DLPack, which conflicts with the lanes=16 omni:xform column created at population time.
-        wp.synchronize_device(self._device)
         self._stage.write_attribute(
             self._object_xform_query,
             "omni:xform",
             ordinal=self._current_ordinal,
-            tensors=_xform_tensor_from_numpy(object_transforms.numpy().reshape(-1, 4, 4)),
+            tensors=make_dltensor(object_transforms),
             is_array=False,
             semantic=AttributeSemantic.MATRIX,
+            cuda_stream=wp.get_stream(self._device).cuda_stream,
         ).wait()
 
     def _update_geometries_ovstage(self) -> None:
@@ -1076,15 +1076,14 @@ class OVRTXRenderer(BaseRenderer):
             device=self._device,
         )
         if self._camera_xform_query is not None:
-            # Synchronize then copy to CPU numpy: same lanes=16 constraint as object transforms above.
-            wp.synchronize_device(self._device)
             self._stage.write_attribute(
                 self._camera_xform_query,
                 "omni:xform",
                 ordinal=self._current_ordinal,
-                tensors=_xform_tensor_from_numpy(camera_transforms.numpy().reshape(-1, 4, 4)),
+                tensors=make_dltensor(camera_transforms),
                 is_array=False,
                 semantic=AttributeSemantic.MATRIX,
+                cuda_stream=wp.get_stream(self._device).cuda_stream,
             ).wait()
 
     def _render_ovstage(self, render_data: OVRTXRenderData) -> None:
