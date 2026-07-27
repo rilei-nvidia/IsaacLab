@@ -143,21 +143,10 @@ if _OVSTAGE_AVAILABLE:
         return ovstage.make_dltensor(flat, dtype=_OVSTAGE_XFORM_DTYPE, shape=[xforms.shape[0]])
 
     # DLDataType for a float32 3-vector (``points`` column). ovstage stores ``point3f[] points``
-    # as one 3-lane float32 element per vertex; a warp ``vec3f`` array exports as ``(N, 3)`` lanes=1
-    # via DLPack, so a lanes=3 override on a host numpy array is required to match the column.
+    # as one 3-lane float32 element per vertex. A warp ``vec3f`` array exports as ``(N, 3)``
+    # lanes=1 via DLPack; ``make_dltensor(..., dtype=_OVSTAGE_POINT_DTYPE)`` folds the trailing
+    # component axis into lanes=3 so the descriptor matches the column type.
     _OVSTAGE_POINT_DTYPE = ovstage.DLDataType(code=ovstage.DLDataTypeCode.kDLFloat, bits=32, lanes=3)
-
-    def _points_tensor_from_numpy(points: np.ndarray) -> Any:
-        """Wrap an ``(N, 3)`` float32 array as a 3-lane DLTensor for ``points`` writes.
-
-        Args:
-            points: Array of shape ``(N, 3)`` with dtype ``float32``.
-
-        Returns:
-            A :class:`ovstage.DLTensor` with shape ``[N]`` and ``lanes=3``.
-        """
-        flat = np.ascontiguousarray(points, dtype=np.float32).reshape(-1)
-        return ovstage.make_dltensor(flat, dtype=_OVSTAGE_POINT_DTYPE, shape=[points.shape[0]])
 
 
 def ovrtx_use_ovstage_enabled() -> bool:
@@ -1535,9 +1524,6 @@ class OVRTXRenderer(BaseRenderer):
     #   :meth:`_render_ovstage` already bars all writes at ordinals <= N, so accumulate the
     #   ``Operation`` objects and ``stage.release_op(op.op_id)`` after it. They must outlive the
     #   barrier — an ``Operation`` is its buffer's only keepalive. Saves caller-side blocking only.
-    # - Direct zero-copy warp DLpack writes are rejected in ovstage 0.1.0 because
-    #   ``omni:xform``/``points`` are  lanes=16/3 while warp's DLPack export is always lanes=1.
-    #   ovstage 0.1.1 will address this.
     # ---------------------------------------------------------------------------
 
     def _init_fields_ovstage(self) -> None:
@@ -2010,17 +1996,15 @@ class OVRTXRenderer(BaseRenderer):
             inputs=[object_transforms, self._object_newton_indices, body_q],
             device=self._device,
         )
-        # Synchronize then copy to CPU numpy: ovstage's make_dltensor only accepts the lanes=16
-        # dtype override on numpy arrays, not DLPack producers. wp.mat44d exports as (N,4,4) lanes=1
-        # via DLPack, which conflicts with the lanes=16 omni:xform column created at population time.
-        wp.synchronize_device(self._device)
+        cuda_stream = wp.get_stream(self._device).cuda_stream
         self._stage.write_attribute(
             self._object_xform_query,
             "omni:xform",
             ordinal=self._current_ordinal,
-            tensors=_xform_tensor_from_numpy(object_transforms.numpy().reshape(-1, 4, 4)),
+            tensors=ovstage.make_dltensor(object_transforms, dtype=_OVSTAGE_XFORM_DTYPE),
             is_array=False,
             semantic=ovstage.AttributeSemantic.MATRIX,
+            cuda_stream=cuda_stream,
         ).wait()
 
     def _update_geometries_ovstage(self) -> None:
@@ -2041,49 +2025,51 @@ class OVRTXRenderer(BaseRenderer):
         if particle_q is None:
             raise RuntimeError("Newton state has no particle_q but geometry bindings exist")
 
-        # ovstage write_attribute needs one DLPack tensor per prim, not one flat ``particle_q``
-        # plus offsets. Synchronize then copy to CPU numpy once (shared by both queries below):
-        # the ``points`` column is ``point3f[]`` (lanes=3), and ovstage's make_dltensor only
-        # accepts the lanes=3 dtype override on numpy arrays, not DLPack producers. A warp
-        # ``vec3f`` slice exports as ``(N, 3)`` lanes=1, which is rejected as a type mismatch
-        # against the lanes=3 column.
-        wp.synchronize_device(self._device)
-        particle_np = particle_q.numpy()
+        cuda_stream = wp.get_stream(self._device).cuda_stream
 
         if self._deformable_points_query is not None:
             self._write_particle_q_slices_ovstage(
                 self._deformable_points_query,
-                particle_np,
+                particle_q,
                 self._deformable_particle_offsets,
                 self._deformable_particle_counts,
+                cuda_stream=cuda_stream,
             )
 
         if self._particle_points_query is not None:
             self._write_particle_q_slices_ovstage(
                 self._particle_points_query,
-                particle_np,
+                particle_q,
                 self._particle_visual_offsets,
                 self._particle_visual_counts,
+                cuda_stream=cuda_stream,
             )
 
     def _write_particle_q_slices_ovstage(
         self,
         query: Any,
-        particle_np: np.ndarray,
+        particle_q: wp.array,
         particle_offsets: list[int],
         particle_counts: list[int],
+        *,
+        cuda_stream: int,
     ) -> None:
         """Write world-space ``particle_q`` slices into the ``points`` column of one ovstage query.
 
         Args:
             query: ovstage query selecting the prims whose ``points`` attribute is written.
-            particle_np: Host copy of the flat world-space particle positions [m], shape
-                ``[total_particles, 3]``.
-            particle_offsets: Start index of each prim's slice into :paramref:`particle_np`.
+            particle_q: Flat world-space particle positions [m], shape ``[total_particles]``,
+                dtype ``wp.vec3f``. Slices are passed zero-copy as CUDA DLTensors.
+            particle_offsets: Start index of each prim's slice into :paramref:`particle_q`.
             particle_counts: Number of particles in each prim's slice.
+            cuda_stream: CUDA stream that produced :paramref:`particle_q`; ovstage waits on it
+                before sealing the write.
         """
         particle_slices = [
-            _points_tensor_from_numpy(particle_np[particle_offset : particle_offset + particle_count])
+            ovstage.make_dltensor(
+                particle_q[particle_offset : particle_offset + particle_count],
+                dtype=_OVSTAGE_POINT_DTYPE,
+            )
             for particle_offset, particle_count in zip(particle_offsets, particle_counts, strict=True)
         ]
 
@@ -2094,6 +2080,7 @@ class OVRTXRenderer(BaseRenderer):
             tensors=particle_slices,
             is_array=True,
             semantic=ovstage.AttributeSemantic.POINT,
+            cuda_stream=cuda_stream,
         ).wait()
 
     def _update_camera_ovstage(
@@ -2120,15 +2107,15 @@ class OVRTXRenderer(BaseRenderer):
             device=self._device,
         )
         if self._camera_xform_query is not None:
-            # Synchronize then copy to CPU numpy: same lanes=16 constraint as object transforms above.
-            wp.synchronize_device(self._device)
+            cuda_stream = wp.get_stream(self._device).cuda_stream
             self._stage.write_attribute(
                 self._camera_xform_query,
                 "omni:xform",
                 ordinal=self._current_ordinal,
-                tensors=_xform_tensor_from_numpy(camera_transforms.numpy().reshape(-1, 4, 4)),
+                tensors=ovstage.make_dltensor(camera_transforms, dtype=_OVSTAGE_XFORM_DTYPE),
                 is_array=False,
                 semantic=ovstage.AttributeSemantic.MATRIX,
+                cuda_stream=cuda_stream,
             ).wait()
 
     def _render_ovstage(self, render_data: OVRTXRenderData) -> None:
