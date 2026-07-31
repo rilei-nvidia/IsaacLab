@@ -45,6 +45,10 @@ def class_to_dict(obj: object) -> dict[str, Any]:
     # convert object to dictionary
     if isinstance(obj, dict):
         obj_dict = obj
+    elif isinstance(obj, ResolvableString):
+        # ResolvableString is a str subclass with no __dict__; convert to plain str so
+        # downstream consumers (e.g. OmegaConf) see a supported primitive type.
+        return str(obj)
     elif isinstance(obj, torch.Tensor):
         # We have to treat torch tensors specially because `torch.tensor.__dict__` returns an empty
         # dict, which would mean that a torch.tensor would be stored as an empty dict. Instead we
