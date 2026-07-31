@@ -560,10 +560,6 @@ class KitVisualizer(BaseVisualizer):
         """Resolve or create the Camera sensor backing the streaming image panel."""
         if not self._uses_streaming_view():
             return
-        cameras_enabled = get_settings_manager().get("/isaaclab/cameras_enabled", False)
-        if not cameras_enabled:
-            logger.info("[KitVisualizer] Streaming view skipped: pass --enable_cameras to activate it.")
-            return
 
         gt_types = list(self.cfg.streaming_gt_types)
         for gt in gt_types:
@@ -587,6 +583,7 @@ class KitVisualizer(BaseVisualizer):
         )
         self._camera_env_indices = env_ids
         if self.cfg.streaming_sensor_prim_path is not None:
+            # Existing sensor: no Replicator pipeline needed, sensor is already live.
             logger.debug(
                 "[KitVisualizer] streaming_sensor_prim_path uses existing camera sensor; "
                 "streaming_cam_* fields are ignored."
@@ -595,6 +592,15 @@ class KitVisualizer(BaseVisualizer):
             self._camera_sensor = find_camera_by_prim_path(cameras, self.cfg.streaming_sensor_prim_path, env_ids)
             self._camera_sensor_indices = env_ids
         else:
+            # Auto-generate path: requires Replicator render pipeline (--enable_cameras).
+            cameras_enabled = get_settings_manager().get("/isaaclab/cameras_enabled", False)
+            if not cameras_enabled:
+                logger.info(
+                    "[KitVisualizer] Auto-generated streaming camera skipped: pass --enable_cameras to activate it, "
+                    "or set streaming_sensor_prim_path to an existing camera sensor."
+                )
+                return
+
             from isaaclab_physx.renderers import IsaacRtxRendererCfg
 
             count = max(1, len(env_ids))

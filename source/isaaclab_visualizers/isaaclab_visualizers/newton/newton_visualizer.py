@@ -190,7 +190,7 @@ class _NewtonViewerUIMixin:
         # Suppress Newton's own "Logged Images" sidebar section.
         image_logger.draw_controls = lambda: None
 
-        # Override draw() to open the floating panel at 75 % of available space.
+        # Override draw() to size the floating panel to match the composite image's aspect ratio.
         _orig_draw = type(image_logger).draw
 
         def _draw_large(self_logger: object) -> None:
@@ -202,8 +202,19 @@ class _NewtonViewerUIMixin:
                 sidebar_w = float(self_logger._sidebar_width_px)
                 avail_w = max(320.0, vp.work_size.x - sidebar_w)
                 avail_h = max(240.0, vp.work_size.y)
-                w = avail_w * 0.75
-                h = avail_h * 0.75
+                # Size the panel to fill available width while preserving the
+                # composite image's exact aspect ratio — no dead space on the sides.
+                img = getattr(entry, "image", None) or getattr(entry, "data", None)
+                if img is not None and hasattr(img, "shape") and img.ndim >= 2:
+                    img_h, img_w = img.shape[:2]
+                    aspect = img_w / max(1, img_h)
+                else:
+                    aspect = 16.0 / 9.0
+                w = avail_w
+                h = w / aspect
+                if h > avail_h:
+                    h = avail_h
+                    w = h * aspect
                 x = sidebar_w + (avail_w - w) * 0.5
                 y = (avail_h - h) * 0.5
                 _imgui.set_next_window_pos(_imgui.ImVec2(float(x), float(y)), _imgui.Cond_.once)
