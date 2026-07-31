@@ -593,15 +593,18 @@ class KitVisualizer(BaseVisualizer):
             self._camera_sensor_indices = env_ids
         else:
             # Auto-generate path: requires Replicator render pipeline (--enable_cameras).
-            renderer_name = self.cfg.streaming_cam_renderer  # e.g. "newton_warp", "isaac_rtx", None
+            # ovrtx conflicts with Kit's /Render prim, so fall back to isaac_rtx in that case.
+            renderer_name = self.cfg.streaming_cam_renderer  # e.g. "newton_warp", "ovrtx", "isaac_rtx", None
+            if renderer_name == "ovrtx":
+                logger.info("[KitVisualizer] streaming_cam_renderer='ovrtx' conflicts with Kit; using isaac_rtx.")
+                renderer_name = "isaac_rtx"
             use_isaac_rtx = renderer_name in ("isaac_rtx", None)
             if use_isaac_rtx:
                 cameras_enabled = get_settings_manager().get("/isaaclab/cameras_enabled", False)
                 if not cameras_enabled:
                     logger.info(
                         "[KitVisualizer] Auto-generated streaming camera (isaac_rtx) skipped: "
-                        "pass --enable_cameras or set streaming_cam_renderer='newton_warp' to activate "
-                        "without --enable_cameras."
+                        "pass --enable_cameras to activate."
                     )
                     return
 
