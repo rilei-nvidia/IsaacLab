@@ -1280,7 +1280,7 @@ class NewtonGLVisualizer(NewtonVisualizer):
     """Newton OpenGL rasterizer visualizer for Isaac Lab.
 
     Wraps :class:`NewtonViewerGL` — fast local window with the full Isaac Lab
-    feature set: tiled camera panel, particle color override, live scalar and array
+    feature set: streaming camera panel, particle color override, live scalar and array
     plots (via Newton's ImGui sidebar), and :meth:`render_rgb_array` support.
 
     Use :class:`NewtonGLVisualizerCfg` (factory type ``"newton"``) to select this backend.

@@ -65,10 +65,10 @@ class NewtonGLVisualizerCfg(NewtonVisualizerCfg):
     """Configuration for the Newton OpenGL rasterizer visualizer.
 
     Selects Newton's OpenGL backend — fast local window with the full Isaac Lab
-    feature set: tiled camera panel, particle color override, and live scalar/array plots.
+    feature set: streaming camera panel, particle color override, and live scalar/array plots.
     """
 
-    visualizer_type: str = "newton"
+    visualizer_type: str = "newton_gl"
     """Factory type identifier. Do not change."""
 
     particle_color: tuple[float, float, float] | None = None
