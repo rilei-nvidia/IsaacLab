@@ -155,7 +155,7 @@ class AppLauncher:
     @staticmethod
     def _parse_visualizer_csv(value: str) -> list[str] | None:
         """Parse visualizer list from a single comma-delimited CLI token."""
-        valid = {"kit", "newton", "rerun", "viser", "none"}
+        valid = {"kit", "newton", "newton_rtx", "rerun", "viser", "none"}
         token = (value or "").strip()
         if not token:
             raise argparse.ArgumentTypeError(
@@ -922,13 +922,13 @@ class AppLauncher:
         if visualizer_explicit and "none" in visualizer_types and len(visualizer_types) > 1:
             raise ValueError("Invalid '--visualizer' value: 'none' cannot be combined with other visualizer types.")
 
-        valid_visualizer_types = {"kit", "newton", "rerun", "viser", "none"}
+        valid_visualizer_types = {"kit", "newton", "newton_rtx", "rerun", "viser", "none"}
         # Secondary validation for the list path (kwargs); the string path is already validated by
         invalid_visualizers = [v for v in visualizer_types if v not in valid_visualizer_types]
         if invalid_visualizers:
             raise ValueError(
                 f"Invalid value(s) for '--visualizer': {invalid_visualizers}. "
-                "Expected one or more of: ['kit', 'newton', 'rerun', 'viser', 'none']."
+                "Expected one or more of: ['kit', 'newton', 'newton_rtx', 'rerun', 'viser', 'none']."
             )
 
         self._cli_visualizer_explicit = visualizer_explicit

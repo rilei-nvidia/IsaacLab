@@ -33,8 +33,53 @@ from .viser_visualizer_cfg import ViserVisualizerCfg
 
 logger = logging.getLogger(__name__)
 
+
+def _resolve_streaming_renderer_cfg(renderer_name: str | None):
+    """Return a renderer cfg for the auto-created streaming camera."""
+    from isaaclab_newton.renderers import NewtonWarpRendererCfg
+
+    if renderer_name is None or renderer_name == "newton_warp":
+        return NewtonWarpRendererCfg()
+    if renderer_name == "ovrtx":
+        try:
+            from isaaclab_ov.renderers import OVRTXRendererCfg
+
+            return OVRTXRendererCfg()
+        except Exception:
+            logger.warning("[ViserVisualizer] streaming_cam_renderer='ovrtx' unavailable; falling back to newton_warp.")
+            return NewtonWarpRendererCfg()
+    if renderer_name == "isaac_rtx":
+        from isaaclab_physx.renderers import IsaacRtxRendererCfg
+
+        return IsaacRtxRendererCfg()
+    raise ValueError(
+        f"streaming_cam_renderer={renderer_name!r} unsupported. Use 'newton_warp', 'ovrtx', 'isaac_rtx', or None."
+    )
+
+
 if TYPE_CHECKING:
     from isaaclab.scene_data import SceneDataProvider
+
+
+def _letterbox_16_9(image: np.ndarray) -> np.ndarray:
+    """Pad *image* with black bars to 16:9 so Viser doesn't stretch it.
+
+    Args:
+        image: ``uint8 (H, W, 3)`` composite frame.
+
+    Returns:
+        ``uint8 (H', W', 3)`` image with ``W'/H' == 16/9``.
+    """
+    h, w = image.shape[:2]
+    target_w = max(w, int(h * 16 / 9))
+    target_h = max(h, int(w * 9 / 16))
+    if target_w == w and target_h == h:
+        return image
+    canvas = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+    y0 = (target_h - h) // 2
+    x0 = (target_w - w) // 2
+    canvas[y0 : y0 + h, x0 : x0 + w] = image
+    return canvas
 
 
 def _scalar_base_name(name: str) -> str:
@@ -326,6 +371,11 @@ class ViserVisualizer(BaseVisualizer):
         self._live_plots_checkboxes: dict[str, Any] = {}  # unused; kept for subclass compatibility
         self._paused_rendering = False
         self._paused_simulation = False
+        self._camera_sensor = None
+        self._camera_sensor_indices: list[int] = []
+        self._camera_env_indices: list[int] = []
+        self._camera_is_owned = False
+        self._generated_camera_prim_paths: list[str] = []
 
     def initialize(self, scene_data_provider: SceneDataProvider) -> None:
         """Initialize viewer resources and bind scene data provider.
@@ -366,6 +416,7 @@ class ViserVisualizer(BaseVisualizer):
                 ("record_to_viser", self.cfg.record_to_viser or "<none>"),
             ],
         )
+        self._setup_streaming_view(num_envs)
         self._is_initialized = True
 
     def step(self, dt: float) -> None:
@@ -403,12 +454,120 @@ class ViserVisualizer(BaseVisualizer):
 
         self._viewer.begin_frame(self._sim_time)
         try:
-            self._viewer.log_state(self._state)
-            if self.cfg.enable_markers:
-                self._render_markers(num_envs)
+            # When streaming_view is active, skip the 3D Newton scene so the
+            # background streaming composite is the only content visible.
+            if not self.cfg.streaming_view:
+                self._viewer.log_state(self._state)
+                if self.cfg.enable_markers:
+                    self._render_markers(num_envs)
             self._render_live_plots()
+            self._push_streaming_frame()
         finally:
             self._viewer.end_frame()
+
+    # ------------------------------------------------------------------
+    # Streaming view
+    # ------------------------------------------------------------------
+
+    def _setup_streaming_view(self, num_envs: int) -> None:
+        """Resolve or create the streaming camera sensor."""
+        from isaaclab.envs.utils.camera_colorizer import SUPPORTED_GT_TYPES, sensor_keys_for_gt_types
+        from isaaclab.envs.utils.camera_view import (
+            VISUALIZER_TILED_CAMERA_MAX_TILES,
+            create_visualizer_camera,
+            find_camera_by_prim_path,
+            resolve_streaming_envs,
+        )
+
+        if not self.cfg.streaming_view:
+            return
+
+        gt_types = list(self.cfg.streaming_gt_types)
+        for gt in gt_types:
+            if gt not in SUPPORTED_GT_TYPES:
+                raise ValueError(
+                    f"[ViserVisualizer] streaming_gt_types contains unsupported type {gt!r}. "
+                    f"Valid types: {sorted(SUPPORTED_GT_TYPES)}"
+                )
+
+        env_ids = resolve_streaming_envs(
+            num_envs,
+            self.cfg.streaming_envs,
+            max_tiles=VISUALIZER_TILED_CAMERA_MAX_TILES,
+            sample_from=self._resolved_visible_env_ids,
+        )
+        self._camera_env_indices = env_ids
+
+        if self.cfg.streaming_sensor_prim_path is not None:
+            cameras = self._scene_data_provider.get_camera_sensors()
+            self._camera_sensor = find_camera_by_prim_path(cameras, self.cfg.streaming_sensor_prim_path, env_ids)
+            self._camera_sensor_indices = env_ids
+            return
+
+        tile_w, tile_h = 320, 240  # default resolution for Viser stream
+        self._camera_sensor, self._generated_camera_prim_paths = create_visualizer_camera(
+            num_envs=num_envs,
+            width=tile_w,
+            height=tile_h,
+            renderer_cfg=_resolve_streaming_renderer_cfg(self.cfg.streaming_cam_renderer),
+            data_types=sensor_keys_for_gt_types(gt_types),
+        )
+        self._camera_sensor_indices = env_ids
+        self._camera_is_owned = True
+        self._apply_streaming_camera_pose(env_ids)
+
+    def _apply_streaming_camera_pose(self, env_ids: list[int]) -> None:
+        """Position the auto-created streaming camera using the cfg target prim and eye offset."""
+        if not self._camera_is_owned or self._camera_sensor is None:
+            return
+        from isaaclab.envs.utils.camera_view import apply_camera_target_positions, prim_world_positions
+        from isaaclab.sim import get_current_stage
+
+        try:
+            stage = get_current_stage()
+            scene = self._scene_data_provider.get_interactive_scene() if self._scene_data_provider else None
+            target_positions = prim_world_positions(
+                stage, self.cfg.streaming_cam_target_prim_path, env_ids, scene=scene
+            )
+            apply_camera_target_positions(self._camera_sensor, target_positions, self.cfg.streaming_cam_eye, env_ids)
+        except Exception as exc:
+            logger.debug("[ViserVisualizer] streaming camera pose: %s", exc)
+
+    def _push_streaming_frame(self) -> None:
+        """Colorize and push the composited streaming frame to Viser clients."""
+        from isaaclab.envs.utils.camera_colorizer import CameraFrameColorizer, sensor_key_for_gt_type
+        from isaaclab.envs.utils.camera_view import camera_gt_batch, compose_streaming_grid
+
+        if self._camera_sensor is None:
+            return
+        if self._camera_is_owned:
+            self._camera_sensor.update(dt=0.0, force_recompute=True)
+
+        gt_types = list(self.cfg.streaming_gt_types)
+        available = frozenset(self._camera_sensor.data.output.keys())
+        frames = []
+        for env_idx in self._camera_sensor_indices:
+            for gt in gt_types:
+                key = sensor_key_for_gt_type(gt, available)
+                raw = camera_gt_batch(self._camera_sensor, [env_idx], key)[0]
+                frames.append(
+                    CameraFrameColorizer.colorize(
+                        raw,
+                        gt,
+                        depth_min=self.cfg.streaming_depth_min,
+                        depth_max=self.cfg.streaming_depth_max,
+                    )
+                )
+
+        n_envs = len(self._camera_sensor_indices)
+        composite = compose_streaming_grid(frames, n_envs, len(gt_types))
+        # Letterbox to 16:9 so the composite isn't stretched when Viser fills
+        # the browser canvas.  Black bars are added on whichever axis needs it.
+        composite = _letterbox_16_9(composite)
+        with contextlib.suppress(Exception):
+            server = getattr(self._viewer, "_server", None)
+            if server is not None:
+                server.scene.set_background_image(composite, format="jpeg")
 
     def _render_markers(self, num_envs: int) -> None:
         """Render marker overlays without letting them interrupt Viser body updates."""

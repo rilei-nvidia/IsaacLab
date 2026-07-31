@@ -11,6 +11,7 @@ import math
 import random
 from typing import Any
 
+import numpy as np
 import torch
 import warp as wp
 
@@ -114,6 +115,103 @@ def ensure_camera_initialized(camera: Camera) -> None:
         camera._initialize_callback(None)
 
 
+def resolve_streaming_envs(
+    num_envs: int,
+    streaming_envs: int | list[int],
+    max_tiles: int = VISUALIZER_TILED_CAMERA_MAX_TILES,
+    sample_from: list[int] | None = None,
+) -> list[int]:
+    """Resolve ``streaming_envs`` to a concrete list of env indices.
+
+    Args:
+        num_envs: Total number of simulation environments.
+        streaming_envs: ``int`` → randomly sample that many envs;
+            ``list[int]`` → use exactly those indices (capped at ``max_tiles``).
+        max_tiles: Hard cap on the number of returned indices.
+        sample_from: When ``streaming_envs`` is an ``int``, sample from this
+            subset rather than all envs (e.g. visible env indices).
+
+    Returns:
+        Sorted list of env indices, length ≤ ``max_tiles``.
+    """
+    if isinstance(streaming_envs, list):
+        indices = [i for i in streaming_envs if 0 <= i < num_envs]
+        return sorted(indices[:max_tiles])
+    pool = sample_from if sample_from is not None else list(range(num_envs))
+    count = min(int(streaming_envs), max_tiles, len(pool))
+    return sorted(random.sample(pool, count))
+
+
+def camera_gt_batch(camera: Camera, env_indices: list[int], sensor_key: str) -> torch.Tensor:
+    """Return GT output for selected env indices from a camera sensor.
+
+    Args:
+        camera: Isaac Lab :class:`~isaaclab.sensors.camera.Camera` sensor.
+        env_indices: Env indices to select (must be valid indices into the
+            camera's tiled output).
+        sensor_key: Key in ``camera.data.output``, e.g. ``"rgb"``,
+            ``"depth"``, or ``"semantic_segmentation"``.
+
+    Returns:
+        Tensor of shape ``(len(env_indices), H, W, C)`` on the camera's device.
+    """
+    raw = camera.data.output[sensor_key]
+    if isinstance(raw, wp.array):
+        raw = wp.to_torch(raw)
+    elif hasattr(raw, "torch"):
+        raw = raw.torch
+    if env_indices:
+        idx = torch.tensor(env_indices, dtype=torch.long, device=raw.device)
+        return raw.index_select(0, idx)
+    return raw
+
+
+def compose_streaming_grid(
+    frames: list[np.ndarray],
+    n_envs: int,
+    n_gt: int,
+) -> np.ndarray:
+    """Composite streaming frames into a tiled output image.
+
+    Layout minimises ``|log(W/H)|`` subject to the constraint that all GT
+    columns for one env remain on the same row.  For a single GT type, envs
+    are packed into a near-square grid (matching the legacy tiled camera
+    behaviour).
+
+    Args:
+        frames: Flat list of ``uint8 (H, W, 3)`` arrays ordered as
+            ``[env0_gt0, env0_gt1, ..., env0_gtM-1, env1_gt0, ...]``.
+        n_envs: Number of environments represented in ``frames``.
+        n_gt: Number of GT types per environment.
+
+    Returns:
+        Single ``uint8 (total_H, total_W, 3)`` composite image.
+    """
+    h, w = frames[0].shape[:2]
+    env_cols = _best_streaming_cols(n_envs, n_gt, h, w)
+    env_rows = math.ceil(n_envs / env_cols)
+    canvas = np.zeros((env_rows * h, env_cols * n_gt * w, 3), dtype=np.uint8)
+    for env_idx in range(n_envs):
+        ec = env_idx % env_cols
+        er = env_idx // env_cols
+        for gt_idx in range(n_gt):
+            frame = frames[env_idx * n_gt + gt_idx]
+            y0, x0 = er * h, (ec * n_gt + gt_idx) * w
+            canvas[y0 : y0 + h, x0 : x0 + w] = frame[..., :3]
+    return canvas
+
+
+def _best_streaming_cols(n_envs: int, n_gt: int, frame_h: int, frame_w: int) -> int:
+    """Env-column count that minimises ``|log(total_W / total_H)|``."""
+    best_cols, best_score = 1, float("inf")
+    for cols in range(1, n_envs + 1):
+        rows = math.ceil(n_envs / cols)
+        score = abs(math.log((cols * n_gt * frame_w) / (rows * frame_h)))
+        if score < best_score:
+            best_score, best_cols = score, cols
+    return best_cols
+
+
 def create_visualizer_camera(
     *,
     num_envs: int,
@@ -121,8 +219,9 @@ def create_visualizer_camera(
     width: int,
     height: int,
     renderer_cfg: Any,
+    data_types: list[str] | None = None,
 ) -> tuple[Camera, list[str]]:
-    """Create an internal RGB Camera sensor for visualizer image views."""
+    """Create an internal Camera sensor for visualizer image views."""
     spawn = sim_utils.PinholeCameraCfg(
         focal_length=24.0,
         focus_distance=400.0,
@@ -146,7 +245,7 @@ def create_visualizer_camera(
         update_period=0.0,
         height=int(height),
         width=int(width),
-        data_types=["rgb"],
+        data_types=data_types if data_types is not None else ["rgb"],
         spawn=None,
         renderer_cfg=renderer_cfg,
     )

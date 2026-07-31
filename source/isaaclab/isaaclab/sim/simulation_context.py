@@ -44,7 +44,7 @@ from .spawners import DomeLightCfg, GroundPlaneCfg
 logger = logging.getLogger(__name__)
 
 # Visualizer type names (CLI and config). App launcher parses CSV and stores as a space-separated setting.
-_VISUALIZER_TYPES = ("newton", "rerun", "viser", "kit")
+_VISUALIZER_TYPES = ("newton", "newton_rtx", "rerun", "viser", "kit")
 
 
 def _resolve_physics_cfg(physics_cfg: Any, use_isaac_sim: bool) -> PhysicsCfg:
@@ -373,10 +373,13 @@ class SimulationContext:
         default_configs = []
         cfg_class_names = {
             "kit": "KitVisualizerCfg",
-            "newton": "NewtonVisualizerCfg",
+            "newton": "NewtonGLVisualizerCfg",
+            "newton_rtx": "NewtonRTXVisualizerCfg",
             "rerun": "RerunVisualizerCfg",
             "viser": "ViserVisualizerCfg",
         }
+        # newton_rtx lives in the same package as newton.
+        module_overrides = {"newton_rtx": "isaaclab_visualizers.newton"}
         for viz_type in requested_visualizers:
             try:
                 if viz_type not in _VISUALIZER_TYPES:
@@ -385,7 +388,7 @@ class SimulationContext:
                         f"Valid types: {', '.join(repr(t) for t in _VISUALIZER_TYPES)}. Skipping."
                     )
                     continue
-                mod = importlib.import_module(f"isaaclab_visualizers.{viz_type}")
+                mod = importlib.import_module(module_overrides.get(viz_type, f"isaaclab_visualizers.{viz_type}"))
                 cfg_cls = getattr(mod, cfg_class_names[viz_type])
                 cfg = cfg_cls()
                 self._apply_default_visualizer_cfg(cfg)

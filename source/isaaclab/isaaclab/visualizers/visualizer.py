@@ -12,7 +12,12 @@ from isaaclab.utils.backend_utils import FactoryBase
 from .base_visualizer import BaseVisualizer
 
 # Visualizer types; each loads from isaaclab_visualizers.<type> for minimal deps.
-_VISUALIZER_TYPES = ("kit", "newton", "rerun", "viser")
+_VISUALIZER_TYPES = ("kit", "newton", "newton_rtx", "rerun", "viser")
+
+# newton_rtx lives in the same package as newton; map it explicitly.
+_VISUALIZER_MODULE_OVERRIDES = {
+    "newton_rtx": "isaaclab_visualizers.newton",
+}
 
 
 class Visualizer(FactoryBase, BaseVisualizer):
@@ -20,7 +25,8 @@ class Visualizer(FactoryBase, BaseVisualizer):
 
     _backend_class_names = {
         "kit": "KitVisualizer",
-        "newton": "NewtonVisualizer",
+        "newton": "NewtonGLVisualizer",
+        "newton_rtx": "NewtonRTXVisualizer",
         "rerun": "RerunVisualizer",
         "viser": "ViserVisualizer",
     }
@@ -58,7 +64,7 @@ class Visualizer(FactoryBase, BaseVisualizer):
         Returns:
             Module import path for the backend.
         """
-        return f"isaaclab_visualizers.{backend}"
+        return _VISUALIZER_MODULE_OVERRIDES.get(backend, f"isaaclab_visualizers.{backend}")
 
     def __new__(cls, cfg, *args, **kwargs) -> BaseVisualizer:
         """Create a new visualizer instance based on the visualizer type.

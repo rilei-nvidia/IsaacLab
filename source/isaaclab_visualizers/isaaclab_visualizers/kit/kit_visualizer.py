@@ -17,17 +17,23 @@ import torch
 from pxr import Gf, Sdf, Usd, UsdGeom, Vt
 
 from isaaclab.app.settings_manager import get_settings_manager
+from isaaclab.envs.utils.camera_colorizer import (
+    SUPPORTED_GT_TYPES,
+    CameraFrameColorizer,
+    sensor_key_for_gt_type,
+    sensor_keys_for_gt_types,
+)
 from isaaclab.envs.utils.camera_view import (
     VISUALIZER_TILED_CAMERA_MAX_TILES,
     apply_camera_target_positions,
-    camera_rgb_batch,
-    compose_rgb_grid_tensor,
+    camera_gt_batch,
+    compose_streaming_grid,
     compute_tile_resolution,
     create_visualizer_camera,
     find_camera_by_prim_path,
     prim_world_positions,
     remove_generated_prims,
-    resolve_tiled_env_indices,
+    resolve_streaming_envs,
 )
 from isaaclab.utils.math import create_rotation_matrix_from_view, quat_from_matrix
 from isaaclab.utils.renderers import isaac_rtx_per_env_scene_partition_enabled
@@ -137,8 +143,8 @@ class KitVisualizer(BaseVisualizer):
             rows=[
                 ("eye", self.cfg.eye),
                 ("lookat", self.cfg.lookat),
-                ("tiled_cam_view", self.cfg.tiled_cam_view),
-                ("tiled_cam_num", self.cfg.tiled_cam_num),
+                ("streaming_view", self.cfg.streaming_view),
+                ("streaming_gt_types", list(self.cfg.streaming_gt_types)),
                 ("max_visible_envs", self.cfg.max_visible_envs),
                 ("num_visualized_envs", num_visualized_envs),
                 ("create_viewport", self.cfg.create_viewport),
@@ -493,7 +499,7 @@ class KitVisualizer(BaseVisualizer):
             # Headless: no viewport window; apply cfg pose to the default perspective camera path.
             self._viewport_window = None
             self._viewport_api = None
-            if self._uses_camera_sensor_view():
+            if self._uses_streaming_view():
                 logger.debug("[KitVisualizer] Camera image view requested in headless mode; no UI panel is created.")
             else:
                 self._apply_cfg_camera_pose_if_configured()
@@ -533,12 +539,12 @@ class KitVisualizer(BaseVisualizer):
         if self._viewport_window is None:
             logger.warning("[KitVisualizer] No active viewport window found.")
             self._viewport_api = None
-            if not self._uses_camera_sensor_view():
+            if not self._uses_streaming_view():
                 self._apply_cfg_camera_pose_if_configured()
             self._refresh_controlled_camera_path()
             return
         self._viewport_api = self._viewport_window.viewport_api
-        if self._uses_camera_sensor_view():
+        if self._uses_streaming_view():
             # Camera sensor image views are shown in a non-interactive image panel.
             pass
         else:
@@ -546,45 +552,52 @@ class KitVisualizer(BaseVisualizer):
         self._refresh_controlled_camera_path()
         asyncio.ensure_future(self._setup_backend_menubar_label_async())
 
-    def _uses_camera_sensor_view(self) -> bool:
-        """Return whether Kit should display a camera sensor image instead of an interactive viewport camera."""
-        return bool(self.cfg.tiled_cam_view)
+    def _uses_streaming_view(self) -> bool:
+        """Return whether Kit should display a streaming camera image panel."""
+        return bool(self.cfg.streaming_view)
 
-    def _setup_camera_sensor_view(self, num_envs: int) -> None:
-        """Resolve or create the Camera sensor backing non-interactive image views."""
-        if not self._uses_camera_sensor_view():
+    def _setup_streaming_view(self, num_envs: int) -> None:
+        """Resolve or create the Camera sensor backing the streaming image panel."""
+        if not self._uses_streaming_view():
             return
         cameras_enabled = get_settings_manager().get("/isaaclab/cameras_enabled", False)
         if not cameras_enabled:
             if self._runtime_headless:
-                # Headless without camera rendering: cannot create a camera sensor.
-                logger.debug("[KitVisualizer] Tiled camera sensor skipped: headless mode without --enable_cameras.")
+                logger.debug("[KitVisualizer] Streaming view skipped: headless mode without --enable_cameras.")
                 return
             raise RuntimeError(
-                "[KitVisualizer] tiled_cam_view=True requires camera rendering support. "
-                "Disable tiled_cam_view for this visualizer config."
+                "[KitVisualizer] streaming_view=True requires camera rendering support. "
+                "Disable streaming_view or pass --enable_cameras."
             )
+
+        gt_types = list(self.cfg.streaming_gt_types)
+        for gt in gt_types:
+            if gt not in SUPPORTED_GT_TYPES:
+                raise ValueError(
+                    f"[KitVisualizer] streaming_gt_types contains unsupported type {gt!r}. "
+                    f"Valid types: {sorted(SUPPORTED_GT_TYPES)}"
+                )
+
         logger.debug(
-            "[KitVisualizer] Setting up camera image view: tiled=%s source=%s num_envs=%s",
-            self.cfg.tiled_cam_view,
-            "prim_path" if self.cfg.tiled_cam_prim_path is not None else "generated",
+            "[KitVisualizer] Setting up streaming view: source=%s gt_types=%s num_envs=%s",
+            "prim_path" if self.cfg.streaming_sensor_prim_path is not None else "generated",
+            gt_types,
             num_envs,
         )
-        env_ids = resolve_tiled_env_indices(
+        env_ids = resolve_streaming_envs(
             num_envs,
-            self.cfg.tiled_cam_num,
-            self.cfg.tiled_cam_env_indices,
+            self.cfg.streaming_envs,
             max_tiles=VISUALIZER_TILED_CAMERA_MAX_TILES,
             sample_from=self._resolved_visible_env_ids,
         )
         self._camera_env_indices = env_ids
-        if self.cfg.tiled_cam_prim_path is not None:
+        if self.cfg.streaming_sensor_prim_path is not None:
             logger.debug(
-                "[KitVisualizer] tiled_cam_prim_path uses existing camera sensor output; "
-                "generated tiled camera pose fields are ignored."
+                "[KitVisualizer] streaming_sensor_prim_path uses existing camera sensor; "
+                "streaming_cam_* fields are ignored."
             )
             cameras = self._scene_data_provider.get_camera_sensors()
-            self._camera_sensor = find_camera_by_prim_path(cameras, self.cfg.tiled_cam_prim_path, env_ids)
+            self._camera_sensor = find_camera_by_prim_path(cameras, self.cfg.streaming_sensor_prim_path, env_ids)
             self._camera_sensor_indices = env_ids
         else:
             from isaaclab_physx.renderers import IsaacRtxRendererCfg
@@ -592,7 +605,7 @@ class KitVisualizer(BaseVisualizer):
             count = max(1, len(env_ids))
             tile_w, tile_h = compute_tile_resolution(self.cfg.window_width, self.cfg.window_height, count)
             logger.debug(
-                "[KitVisualizer] Creating generated camera sensor: env_ids=%s tile=%sx%s",
+                "[KitVisualizer] Creating generated streaming camera: env_ids=%s tile=%sx%s",
                 env_ids,
                 tile_w,
                 tile_h,
@@ -602,23 +615,21 @@ class KitVisualizer(BaseVisualizer):
                 width=tile_w,
                 height=tile_h,
                 renderer_cfg=IsaacRtxRendererCfg(),
+                data_types=sensor_keys_for_gt_types(gt_types),
             )
-            logger.debug("[KitVisualizer] Generated camera sensor initialized.")
             self._camera_sensor_indices = env_ids
             self._camera_is_owned = True
             self._update_owned_camera_poses()
-            logger.debug("[KitVisualizer] Generated camera poses initialized.")
         if not self._runtime_headless:
             self._setup_camera_image_window()
-            logger.debug("[KitVisualizer] Camera image window initialized.")
         else:
             logger.debug("[KitVisualizer] Camera image window skipped in headless mode.")
 
     def _setup_camera_image_window(self) -> None:
-        """Create a dockable Kit UI image panel for camera sensor RGB output."""
+        """Create a dockable Kit UI image panel for streaming camera output."""
         import omni.ui
 
-        title = self.cfg.viewport_name or "Visualizer Tiled Camera"
+        title = self.cfg.viewport_name or "Streaming View"
         self._camera_image_provider = omni.ui.ByteImageProvider()
         self._camera_image_window = omni.ui.Window(title, width=self.cfg.window_width, height=self.cfg.window_height)
         with self._camera_image_window.frame:
@@ -656,17 +667,17 @@ class KitVisualizer(BaseVisualizer):
             return
         target_positions = prim_world_positions(
             self._scene_data_provider.get_usd_stage(),
-            self.cfg.tiled_cam_target_prim_path,
+            self.cfg.streaming_cam_target_prim_path,
             self._camera_env_indices,
             scene=self._scene_data_provider.get_interactive_scene(),
         )
         eyes, targets = apply_camera_target_positions(
-            self._camera_sensor, target_positions, self.cfg.tiled_cam_eye, self._camera_env_indices
+            self._camera_sensor, target_positions, self.cfg.streaming_cam_eye, self._camera_env_indices
         )
         self._set_generated_usd_camera_poses(eyes, targets)
 
     def _update_camera_image_panel(self, dt: float) -> None:
-        """Refresh the non-interactive Kit image panel from camera RGB output."""
+        """Refresh the streaming image panel with composited multi-GT output."""
         if self._camera_sensor is None or self._camera_image_provider is None:
             return
         if self._camera_is_owned:
@@ -674,11 +685,26 @@ class KitVisualizer(BaseVisualizer):
             if self._generated_camera_poses_dirty:
                 self._sync_camera_pose_updates_to_kit()
                 self._generated_camera_poses_dirty = False
-        if self._camera_is_owned:
             self._camera_sensor.update(dt=dt, force_recompute=True)
-        rgb = camera_rgb_batch(self._camera_sensor, self._camera_sensor_indices)
-        image = compose_rgb_grid_tensor(rgb) if self.cfg.tiled_cam_view else rgb[0].contiguous()
-        self._upload_camera_image_to_panel(image)
+
+        gt_types = list(self.cfg.streaming_gt_types)
+        available = frozenset(self._camera_sensor.data.output.keys())
+        frames = []
+        for env_idx in self._camera_sensor_indices:
+            for gt in gt_types:
+                key = sensor_key_for_gt_type(gt, available)
+                raw = camera_gt_batch(self._camera_sensor, [env_idx], key)[0]
+                frames.append(
+                    CameraFrameColorizer.colorize(
+                        raw,
+                        gt,
+                        depth_min=self.cfg.streaming_depth_min,
+                        depth_max=self.cfg.streaming_depth_max,
+                    )
+                )
+        n_envs = len(self._camera_sensor_indices)
+        composite = compose_streaming_grid(frames, n_envs, len(gt_types))
+        self._upload_camera_image_to_panel(composite)
 
     def _upload_camera_image_to_panel(self, image: np.ndarray | torch.Tensor) -> None:
         """Upload an RGB/RGBA image to the Kit image provider."""

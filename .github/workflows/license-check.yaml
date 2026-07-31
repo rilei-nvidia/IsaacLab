@@ -61,13 +61,14 @@ jobs:
         ACCEPT_EULA: Y
         ISAACSIM_ACCEPT_EULA: YES
       run: |
-        uv sync --extra all --extra test
+        uv sync --extra all
         # Isaac Sim conflicts with --extra all under uv, so install it imperatively
         # after the sync. Read the pinned spec from pyproject (single source of truth).
         ISAACSIM_SPEC=$(.venv/bin/python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['optional-dependencies']['isaacsim'][0])")
         uv pip install "$ISAACSIM_SPEC"
         uv pip install pip-licenses pipdeptree \
-          -r tools/template/requirements.txt
+          -r tools/template/requirements.txt \
+          -r docs/requirements.txt
         # Put the venv on PATH for later steps.
         echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 

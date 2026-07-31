@@ -1910,7 +1910,6 @@ class Articulation(BaseArticulation):
             cpu_buffer=self.data._cpu_joint_armature,
             indices=self._get_cpu_env_ids(env_ids, sim_env_ids),
         )
-        self._data._reset_dynamics(mass_matrix=True)
 
     def write_joint_armature_to_sim_mask(
         self,
@@ -1959,7 +1958,6 @@ class Articulation(BaseArticulation):
             cpu_buffer=self.data._cpu_joint_armature,
             mask=self._get_cpu_env_mask(env_mask_wp),
         )
-        self._data._reset_dynamics(mass_matrix=True)
 
     def write_joint_friction_coefficient_to_sim_index(
         self,
@@ -2378,7 +2376,6 @@ class Articulation(BaseArticulation):
         cpu_env_ids = self._get_cpu_env_ids(env_ids, sim_env_ids)
         wp.copy(self.data._cpu_body_mass, body_mass_backend)
         self._root_view.set_attribute(TT.BODY_MASS, self.data._cpu_body_mass, indices=cpu_env_ids)
-        self._data._reset_dynamics(mass_matrix=True, gravity_compensation=True)
 
     def set_masses_mask(
         self,
@@ -2429,7 +2426,6 @@ class Articulation(BaseArticulation):
         self._data._body_mass.timestamp = self._data._sim_timestamp
         wp.copy(self.data._cpu_body_mass, body_mass_backend)
         self._root_view.set_attribute(TT.BODY_MASS, self.data._cpu_body_mass, mask=self._get_cpu_env_mask(env_mask_wp))
-        self._data._reset_dynamics(mass_matrix=True, gravity_compensation=True)
 
     def _set_coms(
         self,
@@ -2660,7 +2656,6 @@ class Articulation(BaseArticulation):
         cpu_env_ids = self._get_cpu_env_ids(env_ids, sim_env_ids)
         wp.copy(self.data._cpu_body_inertia, body_inertia_backend)
         self._root_view.set_attribute(TT.BODY_INERTIA, self.data._cpu_body_inertia, indices=cpu_env_ids)
-        self._data._reset_dynamics(mass_matrix=True)
 
     def set_inertias_mask(
         self,
@@ -2714,7 +2709,6 @@ class Articulation(BaseArticulation):
         self._root_view.set_attribute(
             TT.BODY_INERTIA, self.data._cpu_body_inertia, mask=self._get_cpu_env_mask(env_mask_wp)
         )
-        self._data._reset_dynamics(mass_matrix=True)
 
     def _write_joint_target(
         self,
@@ -4127,9 +4121,6 @@ class Articulation(BaseArticulation):
             TT.LINK_ACCELERATION,
             TT.DOF_POSITION,
             TT.DOF_VELOCITY,
-            TT.JACOBIAN,
-            TT.MASS_MATRIX,
-            TT.GRAVITY_FORCE,
             TT.DOF_STIFFNESS,
             TT.DOF_DAMPING,
             TT.DOF_LIMIT,

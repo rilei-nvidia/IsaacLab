@@ -37,7 +37,6 @@ from isaaclab_ovphysx.assets.kernels import (
 from isaaclab_ovphysx.physics import OvPhysxManager
 from isaaclab_ovphysx.sim.views.ovphysx_view import OvPhysxView
 
-from . import kernels as articulation_kernels
 from .kernels import _fd_joint_acc
 
 # import logger
@@ -75,13 +74,6 @@ class ArticulationData(BaseArticulationData):
         ``BODY_INERTIA``, and most ``DOF_*`` property bindings) on CPU only. These are routed through
         pinned-host staging buffers via :meth:`_binding_read` so that GPU-resident consumers see the
         data without per-step host allocations.
-
-    .. note::
-        **Recorded read commands.** OVPhysX reads into stable, pre-allocated destination buffers.
-        Outside CUDA graph capture, repeated Warp kernels that derive or reorder public data from
-        those buffers reuse recorded launch commands. Direct ``TensorBinding`` reads continue to use
-        :class:`OvPhysxView`'s object-identity cache. Recorded commands are discarded whenever ordering
-        buffers may be replaced or the data container is invalidated.
     """
 
     __backend_name__: str = "ovphysx"
@@ -238,9 +230,6 @@ class ArticulationData(BaseArticulationData):
                 self._body_state_w_buf,
                 self._body_link_state_w_buf,
                 self._body_com_state_w_buf,
-                self._body_com_jacobian_w,
-                self._mass_matrix,
-                self._gravity_compensation_forces,
             ]
         )
         # Force a kinematic refresh on the next FK-dependent read.
@@ -281,18 +270,6 @@ class ArticulationData(BaseArticulationData):
         # Force a kinematic refresh on the next FK-dependent read.
         self._fk_timestamp = -1.0
 
-    def _reset_dynamics(
-        self, *, body_com_jacobian: bool = False, mass_matrix: bool = False, gravity_compensation: bool = False
-    ) -> None:
-        """Reset selected computed-dynamics caches after same-timestamp model writes."""
-        reset_timestamps(
-            [
-                self._body_com_jacobian_w if body_com_jacobian else None,
-                self._mass_matrix if mass_matrix else None,
-                self._gravity_compensation_forces if gravity_compensation else None,
-            ]
-        )
-
     def _reset_body_com_pose_b_dependents(self) -> None:
         """Reset cached properties derived from body-frame center-of-mass offsets."""
         reset_timestamps(
@@ -316,7 +293,6 @@ class ArticulationData(BaseArticulationData):
                 self._body_com_state_w_buf,
             ]
         )
-        self._reset_dynamics(body_com_jacobian=True, mass_matrix=True, gravity_compensation=True)
 
     """
     Names.
@@ -867,6 +843,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self.num_instances,
                 inputs=[backend_buffer.data],
                 outputs=[self._root_link_vel_w.data],
+                device=self.device,
             )
             self._root_link_vel_w.timestamp = self._sim_timestamp
         if self._root_link_vel_w_ta is None:
@@ -890,6 +867,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self.num_instances,
                 inputs=[self.root_link_pose_w, self._backend_body_com_pose_b],
                 outputs=[self._root_com_pose_w.data],
+                device=self.device,
             )
             self._root_com_pose_w.timestamp = self._sim_timestamp
         if self._root_com_pose_w_ta is None:
@@ -977,6 +955,7 @@ class ArticulationData(BaseArticulationData):
                 dim=(self._num_instances, self._num_bodies),
                 inputs=[backend_buffer.data, self.body_ordering.user_to_backend],
                 outputs=[buf.data],
+                device=self.device,
             )
         else:
             self._read_launch_cache.launch(
@@ -985,6 +964,7 @@ class ArticulationData(BaseArticulationData):
                 dim=(self._num_instances, self._num_bodies, component_count),
                 inputs=[backend_buffer.data, self.body_ordering.user_to_backend],
                 outputs=[buf.data],
+                device=self.device,
             )
         buf.timestamp = backend_buffer.timestamp
 
@@ -1071,6 +1051,7 @@ class ArticulationData(BaseArticulationData):
             dim=(self.num_instances, self.num_bodies),
             inputs=[self._body_com_vel_w.data, self._body_link_pose_w.data, self._body_com_pose_b.data],
             outputs=[self._body_link_vel_w.data],
+            device=self.device,
         )
         self._body_link_vel_w.timestamp = self._sim_timestamp
         if self._body_link_vel_w_ta is None:
@@ -1100,6 +1081,7 @@ class ArticulationData(BaseArticulationData):
             dim=(self.num_instances, self.num_bodies),
             inputs=[self._body_link_pose_w.data, self._body_com_pose_b.data],
             outputs=[self._body_com_pose_w.data],
+            device=self.device,
         )
         self._body_com_pose_w.timestamp = self._sim_timestamp
         if self._body_com_pose_w_ta is None:
@@ -1265,6 +1247,7 @@ class ArticulationData(BaseArticulationData):
                 dim=(self.num_instances, self.num_joints),
                 inputs=[backend_buffer.data, self.joint_ordering.user_to_backend],
                 outputs=[user_buffer.data],
+                device=self.device,
             )
             user_buffer.timestamp = backend_buffer.timestamp
 
@@ -1379,6 +1362,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self.num_instances,
                 inputs=[self.GRAVITY_VEC_W, self.root_link_pose_w],
                 outputs=[self._projected_gravity_b.data],
+                device=self.device,
             )
             self._projected_gravity_b.timestamp = self._sim_timestamp
         if self._projected_gravity_b_ta is None:
@@ -1402,6 +1386,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self.num_instances,
                 inputs=[self.FORWARD_VEC_B, self.root_link_pose_w],
                 outputs=[self._heading_w.data],
+                device=self.device,
             )
             self._heading_w.timestamp = self._sim_timestamp
         if self._heading_w_ta is None:
@@ -1423,6 +1408,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self.num_instances,
                 inputs=[self.root_link_pose_w, self.root_link_vel_w],
                 outputs=[self._root_link_lin_vel_b.data],
+                device=self.device,
             )
             self._root_link_lin_vel_b.timestamp = self._sim_timestamp
         if self._root_link_lin_vel_b_ta is None:
@@ -1444,6 +1430,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self.num_instances,
                 inputs=[self.root_link_pose_w, self.root_link_vel_w],
                 outputs=[self._root_link_ang_vel_b.data],
+                device=self.device,
             )
             self._root_link_ang_vel_b.timestamp = self._sim_timestamp
         if self._root_link_ang_vel_b_ta is None:
@@ -1466,6 +1453,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self.num_instances,
                 inputs=[self.root_link_pose_w, self.root_com_vel_w],
                 outputs=[self._root_com_lin_vel_b.data],
+                device=self.device,
             )
             self._root_com_lin_vel_b.timestamp = self._sim_timestamp
         if self._root_com_lin_vel_b_ta is None:
@@ -1488,6 +1476,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self.num_instances,
                 inputs=[self.root_link_pose_w, self.root_com_vel_w],
                 outputs=[self._root_com_ang_vel_b.data],
+                device=self.device,
             )
             self._root_com_ang_vel_b.timestamp = self._sim_timestamp
         if self._root_com_ang_vel_b_ta is None:
@@ -1768,24 +1757,6 @@ class ArticulationData(BaseArticulationData):
         self._joint_vel_backend: TimestampedBuffer | None = None
         self._joint_acc = TimestampedBuffer((N, D), dev, wp.float32)
         self._previous_joint_vel = wp.zeros((N, D), dtype=wp.float32, device=dev)
-
-        # -- Dynamics quantities for task-space controllers
-        self._jacobian_link_offset = 1 if self._view.is_fixed_base else 0
-        self._num_base_dofs = 0 if self._view.is_fixed_base else 6
-        num_jacobian_bodies = L - self._jacobian_link_offset
-        num_generalized_dofs = D + self._num_base_dofs
-        jacobian_shape = (N, num_jacobian_bodies, 6, num_generalized_dofs)
-        mass_matrix_shape = (N, num_generalized_dofs, num_generalized_dofs)
-        gravity_shape = (N, num_generalized_dofs)
-        self._jacobian_body_user_to_backend = self._make_jacobian_body_user_to_backend()
-        self._jacobian_joint_user_to_backend = wp.array(range(D), dtype=wp.int32, device=dev)
-        self._body_com_jacobian_w = TimestampedBuffer(jacobian_shape, dev, wp.float32)
-        self._body_com_jacobian_w_backend = wp.zeros(jacobian_shape, dtype=wp.float32, device=dev)
-        self._body_link_jacobian_w = wp.zeros(jacobian_shape, dtype=wp.float32, device=dev)
-        self._mass_matrix = TimestampedBuffer(mass_matrix_shape, dev, wp.float32)
-        self._mass_matrix_backend = wp.zeros(mass_matrix_shape, dtype=wp.float32, device=dev)
-        self._gravity_compensation_forces = TimestampedBuffer(gravity_shape, dev, wp.float32)
-        self._gravity_compensation_forces_backend = wp.zeros(gravity_shape, dtype=wp.float32, device=dev)
 
         # -- Joint properties (CPU-only; timestamped so they can be re-read after writes)
         self._joint_stiffness = TimestampedBuffer((N, D), dev, wp.float32)
@@ -2234,16 +2205,6 @@ class ArticulationData(BaseArticulationData):
         """Configure public-order buffers after articulation ordering maps are installed."""
         self._read_launch_cache.clear()
         self._configure_ordering_buffers()
-        self._jacobian_body_user_to_backend = self._make_jacobian_body_user_to_backend()
-        if self.has_joint_ordering:
-            self._jacobian_joint_user_to_backend = self.joint_ordering.user_to_backend
-        reset_timestamps(
-            [
-                self._body_com_jacobian_w,
-                self._mass_matrix,
-                self._gravity_compensation_forces,
-            ]
-        )
 
     def _pin_proxy_arrays(self) -> None:
         """Create pinned ProxyArray wrappers for all data buffers.
@@ -2301,11 +2262,6 @@ class ArticulationData(BaseArticulationData):
         self._body_com_vel_w_ta: ProxyArray | None = None
         self._body_com_acc_w_ta: ProxyArray | None = None
         self._body_com_pose_b_ta: ProxyArray | None = None
-        # Dynamics quantities (task-space controllers)
-        self._body_com_jacobian_w_ta = ProxyArray(self._body_com_jacobian_w.data)
-        self._body_link_jacobian_w_ta = ProxyArray(self._body_link_jacobian_w)
-        self._mass_matrix_ta = ProxyArray(self._mass_matrix.data)
-        self._gravity_compensation_forces_ta = ProxyArray(self._gravity_compensation_forces.data)
         # Body properties
         self._body_mass_ta: ProxyArray | None = None
         self._body_inertia_ta: ProxyArray | None = None
@@ -2482,6 +2438,7 @@ class ArticulationData(BaseArticulationData):
                 dim=(self.num_instances, self.num_joints),
                 inputs=[backend_buffer.data, self.joint_ordering.user_to_backend],
                 outputs=[user_buffer.data],
+                device=self.device,
             )
         else:
             self._read_launch_cache.launch(
@@ -2490,6 +2447,7 @@ class ArticulationData(BaseArticulationData):
                 dim=(self.num_instances, self.num_joints, component_count),
                 inputs=[backend_buffer.data, self.joint_ordering.user_to_backend],
                 outputs=[user_buffer.data],
+                device=self.device,
             )
         user_buffer.timestamp = backend_buffer.timestamp
 
@@ -2591,6 +2549,7 @@ class ArticulationData(BaseArticulationData):
             dim=self.num_instances,
             inputs=[self._default_root_pose, self._default_root_vel],
             outputs=[self._default_root_state_buf],
+            device=self.device,
         )
         if self._default_root_state_ta is None:
             self._default_root_state_ta = ProxyArray(self._default_root_state_buf)
@@ -2615,6 +2574,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self.num_instances,
                 inputs=[self.root_link_pose_w, self.root_com_vel_w],
                 outputs=[self._root_state_w_buf.data],
+                device=self.device,
             )
             self._root_state_w_buf.timestamp = self._sim_timestamp
         if self._root_state_w_ta is None:
@@ -2640,6 +2600,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self.num_instances,
                 inputs=[self.root_link_pose_w, self.root_link_vel_w],
                 outputs=[self._root_link_state_w_buf.data],
+                device=self.device,
             )
             self._root_link_state_w_buf.timestamp = self._sim_timestamp
         if self._root_link_state_w_ta is None:
@@ -2665,6 +2626,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self.num_instances,
                 inputs=[self.root_com_pose_w, self.root_com_vel_w],
                 outputs=[self._root_com_state_w_buf.data],
+                device=self.device,
             )
             self._root_com_state_w_buf.timestamp = self._sim_timestamp
         if self._root_com_state_w_ta is None:
@@ -2696,6 +2658,7 @@ class ArticulationData(BaseArticulationData):
             dim=(self.num_instances, self.num_bodies),
             inputs=[self._body_link_pose_w.data, self._body_com_vel_w.data],
             outputs=[self._body_state_w_buf.data],
+            device=self.device,
         )
         self._body_state_w_buf.timestamp = self._sim_timestamp
         if self._body_state_w_ta is None:
@@ -2727,6 +2690,7 @@ class ArticulationData(BaseArticulationData):
             dim=(self.num_instances, self.num_bodies),
             inputs=[self._body_link_pose_w.data, self._body_link_vel_w.data],
             outputs=[self._body_link_state_w_buf.data],
+            device=self.device,
         )
         self._body_link_state_w_buf.timestamp = self._sim_timestamp
         if self._body_link_state_w_ta is None:
@@ -2758,6 +2722,7 @@ class ArticulationData(BaseArticulationData):
             dim=(self.num_instances, self.num_bodies),
             inputs=[self._body_com_pose_w.data, self._body_com_vel_w.data],
             outputs=[self._body_com_state_w_buf.data],
+            device=self.device,
         )
         self._body_com_state_w_buf.timestamp = self._sim_timestamp
         if self._body_com_state_w_ta is None:

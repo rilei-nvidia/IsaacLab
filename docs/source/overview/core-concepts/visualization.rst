@@ -273,6 +273,71 @@ Kit tiled camera views work without an additional camera option.
   To enable or disable the tiled camera panel, use the "Visualizer Tiled Camera" option found in the Tiled Camera View dropdown menu on the left sidebar.
 
 
+Streaming Camera View
+~~~~~~~~~~~~~~~~~~~~~
+
+The streaming view replaces the legacy ``tiled_cam_*`` fields with a unified API that works across
+all four visualizer backends. When ``streaming_view=True``, the visualizer captures pixels from a
+camera sensor each step, composites them into a single image tiled by environment and GT type, and
+displays or streams the result.
+
+**Configuration fields** (all defined on :class:`~isaaclab.visualizers.VisualizerCfg`):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Field
+     - Description
+   * - ``streaming_view``
+     - Enable the streaming camera panel (default ``False``).
+   * - ``streaming_gt_types``
+     - List of ground-truth types shown left-to-right per env row.
+       Valid values: ``"rgb"``, ``"depth"``, ``"segmentation"``.
+   * - ``streaming_envs``
+     - ``int`` to randomly sample that many envs, or ``list[int]`` for fixed env indices.
+   * - ``streaming_depth_min`` / ``streaming_depth_max``
+     - Near/far clip [m] for the turbo depth colormap.
+   * - ``streaming_sensor_prim_path``
+     - Prim path of an **existing** ``TiledCamera`` sensor to read from
+       (e.g. ``"/World/envs/*/Camera"``). Takes priority over the auto-created camera.
+   * - ``streaming_cam_target_prim_path``, ``streaming_cam_eye``, ``streaming_cam_renderer``
+     - Settings for the **auto-created** camera (ignored when ``streaming_sensor_prim_path`` is set).
+       ``streaming_cam_renderer`` accepts ``"newton_warp"``, ``"ovrtx"``, ``"isaac_rtx"``, or
+       ``None`` (backend default).
+
+**Example** — stream RGB and depth from an existing sensor for two specific envs:
+
+.. code-block:: python
+
+    from isaaclab_visualizers.newton import NewtonGLVisualizerCfg
+
+    visualizer_cfg = NewtonGLVisualizerCfg(
+        streaming_view=True,
+        streaming_sensor_prim_path="/World/envs/*/Camera",
+        streaming_envs=[0, 1],
+        streaming_gt_types=["rgb", "depth"],
+        streaming_depth_max=5.0,
+    )
+
+**Colorization** is handled by :class:`~isaaclab.envs.utils.camera_colorizer.CameraFrameColorizer`
+in ``isaaclab.envs.utils.camera_colorizer``. Depth uses the turbo colormap; segmentation uses a
+golden-ratio hue palette to assign each class ID a distinct color.
+
+**Per-backend behavior:**
+
+- **Newton GL** — shows an image panel in the HUD sidebar ("Streaming Camera View" dropdown).
+- **Kit (Omniverse)** — shows an image panel in the Isaac Lab omni.ui window.
+- **Rerun** — pushes the composited frame to a 2D image view as the primary camera display each step.
+- **Viser** — streams the frame as a background image updated each step.
+
+.. note::
+
+   Newton RTX streaming uses a ``TiledCamera`` independent of the ViewerRTX display path.
+   When using the OVRTX renderer for the streaming camera (``streaming_cam_renderer="ovrtx"``),
+   the ``patchelf`` SONAME fix must be applied first — see the installation notes for
+   ``presets=ovrtx``.
+
 Live Plots
 ~~~~~~~~~~
 

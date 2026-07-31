@@ -280,11 +280,17 @@ def create_scene_partition_attributes(
     variability = Sdf.VariabilityUniform
     is_custom = True
 
-    # Create the attributes and set the default values.
+    # Create (or update) the attributes and set the default values.
+    # Use GetAttributeAtPath first so this is idempotent when the attribute was
+    # already created by create_visualizer_camera (which calls prim.CreateAttribute).
     with Sdf.ChangeBlock():
         for attr_path, scene_partition in attr_updates:
-            Sdf.JustCreatePrimAttributeInLayer(root_layer, attr_path, type_name, variability, is_custom)
-            root_layer.GetAttributeAtPath(attr_path).default = scene_partition
+            spec = root_layer.GetAttributeAtPath(attr_path)
+            if spec is None:
+                Sdf.JustCreatePrimAttributeInLayer(root_layer, attr_path, type_name, variability, is_custom)
+                spec = root_layer.GetAttributeAtPath(attr_path)
+            if spec is not None:
+                spec.default = scene_partition
             logger.debug("Set scene partition '%s' on '%s'", scene_partition, attr_path.GetPrimPath())
 
 

@@ -42,37 +42,61 @@ class VisualizerCfg:
     focal_length: float = 12.0
     """Camera focal length in millimeters for visualizer camera views."""
 
-    # Tiled camera settings
-    tiled_cam_view: bool = False
-    """Enable a non-interactive tiled camera image view."""
+    # ── Streaming view ────────────────────────────────────────────────────────
+    # Captures pixels from a camera sensor (existing or auto-created), tiles them
+    # across envs and GT types, and shows the result as an image panel in interactive
+    # visualizers (Newton GL, Kit) or pushes it per-step to sink-based ones (Rerun, Viser).
 
-    tiled_cam_num: int = 16
-    """Number of camera tiles to show when tiled_cam_env_indices is None, capped at 100."""
+    streaming_view: bool = False
+    """Enable the streaming camera image view."""
 
-    tiled_cam_env_indices: list[int] | None = None
-    """Env ids to show in tiled camera view; capped at 100 entries.
+    # Source — existing sensor (takes priority when set)
+    streaming_sensor_prim_path: str | None = None
+    """Prim path of an existing TiledCamera sensor to stream from.
 
-    If ``None``, envs are randomly sampled from all visible envs.
+    When set, all ``streaming_cam_*`` fields are ignored.  Should point to an
+    existing camera sensor, e.g. ``"/World/envs/*/Camera"``.
     """
 
-    tiled_cam_prim_path: str | None = None
-    """Existing Isaac Lab Camera sensor prim path to display.
+    # Source — auto-created camera (used when streaming_sensor_prim_path is None)
+    streaming_cam_target_prim_path: str = "/World/envs/*/Robot"
+    """Target prim for the auto-created streaming camera (ignored when
+    :attr:`streaming_sensor_prim_path` is set)."""
 
-    If ``None``, the visualizer creates generated tiled cameras. If set, it should
-    point to an existing camera sensor, for example ``"/World/envs/*/Camera"``.
+    streaming_cam_eye: tuple[float, float, float] = (4.0, -4.0, 3.0)
+    """Eye offset [m] for the auto-created streaming camera relative to the target prim."""
+
+    streaming_cam_renderer: str | None = None
+    """Renderer for the auto-created streaming camera.
+
+    One of ``"newton_warp"``, ``"ovrtx"``, ``"isaac_rtx"``, or ``None`` to use
+    the backend default.  Ignored when :attr:`streaming_sensor_prim_path` is set.
+    Validated at initialisation time.
     """
 
-    tiled_cam_eye: tuple[float, float, float] = (4.0, -4.0, 3.0)
-    """Offset of the camera eye from tiled_cam_target_prim_path for generated tiled cameras.
+    # Shared settings
+    streaming_envs: int | list[int] = 1
+    """Environments to capture.
 
-    The camera follows the target prim and always maintains this fixed offset relative to it.
+    * ``int`` — randomly sample this many envs each reset (from visible envs).
+    * ``list[int]`` — capture exactly these env indices.
     """
 
-    tiled_cam_target_prim_path: str = "/World/envs/*/Robot"
-    """Prim path that generated tiled cameras follow and look at.
+    streaming_gt_types: list[str] = ("rgb",)
+    """GT data types displayed left-to-right per environment row.
 
-    For example, ``"/World/envs/*/Robot"``.
+    Valid values: ``"rgb"``, ``"depth"``, ``"segmentation"``.
+    Validated against :data:`~isaaclab.envs.utils.camera_colorizer.SUPPORTED_GT_TYPES`
+    at initialisation time (only when :attr:`streaming_view` is ``True``).
     """
+
+    streaming_depth_min: float = 0.1
+    """Near-clip for the turbo depth colormap [m].  Used when ``"depth"`` is in
+    :attr:`streaming_gt_types`."""
+
+    streaming_depth_max: float = 10.0
+    """Far-clip for the turbo depth colormap [m].  Used when ``"depth"`` is in
+    :attr:`streaming_gt_types`."""
 
     # Partial visualization settings
     max_visible_envs: int | None = None

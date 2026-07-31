@@ -778,6 +778,7 @@ class ArticulationData(BaseArticulationData):
                 outputs=[
                     self._root_link_vel_w.data,
                 ],
+                device=self.device,
             )
             self._root_link_vel_w.timestamp = self._sim_timestamp
 
@@ -806,6 +807,7 @@ class ArticulationData(BaseArticulationData):
                 outputs=[
                     self._root_com_pose_w.data,
                 ],
+                device=self.device,
             )
             self._root_com_pose_w.timestamp = self._sim_timestamp
 
@@ -880,6 +882,7 @@ class ArticulationData(BaseArticulationData):
                     dim=(self._num_instances, self._num_bodies),
                     inputs=[backend_buffer, self.body_ordering.user_to_backend],
                     outputs=[buf.data],
+                    device=self.device,
                 )
             else:
                 self._read_launch_cache.launch(
@@ -888,6 +891,7 @@ class ArticulationData(BaseArticulationData):
                     dim=(self._num_instances, self._num_bodies, component_count),
                     inputs=[backend_buffer, self.body_ordering.user_to_backend],
                     outputs=[buf.data],
+                    device=self.device,
                 )
         buf.timestamp = self._sim_timestamp
 
@@ -912,6 +916,7 @@ class ArticulationData(BaseArticulationData):
                 dim=(self._num_instances, self._num_bodies),
                 inputs=[backend_source, self.body_ordering.user_to_backend],
                 outputs=[buf.data],
+                device=self.device,
             )
         else:
             buf.data = backend_source
@@ -991,6 +996,7 @@ class ArticulationData(BaseArticulationData):
                 outputs=[
                     self._body_link_vel_w.data,
                 ],
+                device=self.device,
             )
             self._body_link_vel_w.timestamp = self._sim_timestamp
 
@@ -1019,6 +1025,7 @@ class ArticulationData(BaseArticulationData):
                 outputs=[
                     self._body_com_pose_w.data,
                 ],
+                device=self.device,
             )
             self._body_com_pose_w.timestamp = self._sim_timestamp
 
@@ -1113,6 +1120,7 @@ class ArticulationData(BaseArticulationData):
                         has_joint_ordering,
                     ],
                     outputs=[self._body_com_jacobian_w.data],
+                    device=self.device,
                 )
             else:
                 self._body_com_jacobian_w.data = backend_jacobian
@@ -1139,6 +1147,7 @@ class ArticulationData(BaseArticulationData):
                 self.body_com_jacobian_w.warp,
             ],
             outputs=[self._body_link_jacobian_w_buf],
+            device=self.device,
         )
         return self._body_link_jacobian_w_ta
 
@@ -1179,6 +1188,7 @@ class ArticulationData(BaseArticulationData):
                     has_joint_ordering,
                 ],
                 outputs=[buf.data],
+                device=self.device,
             )
         else:
             buf.data = backend_source
@@ -1243,6 +1253,7 @@ class ArticulationData(BaseArticulationData):
                 dim=(self._num_instances, self._num_joints),
                 inputs=[view_getter(), self.joint_ordering.user_to_backend],
                 outputs=[user_buffer.data],
+                device=self.device,
             )
         user_buffer.timestamp = self._sim_timestamp
 
@@ -1365,6 +1376,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self._num_instances,
                 inputs=[self.GRAVITY_VEC_W, self.root_link_quat_w],
                 outputs=[self._projected_gravity_b.data],
+                device=self.device,
             )
             self._projected_gravity_b.timestamp = self._sim_timestamp
         if self._projected_gravity_b_ta is None:
@@ -1386,6 +1398,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self._num_instances,
                 inputs=[self.FORWARD_VEC_B, self.root_link_quat_w],
                 outputs=[self._heading_w.data],
+                device=self.device,
             )
             self._heading_w.timestamp = self._sim_timestamp
         if self._heading_w_ta is None:
@@ -1406,6 +1419,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self._num_instances,
                 inputs=[self.root_link_lin_vel_w, self.root_link_quat_w],
                 outputs=[self._root_link_lin_vel_b.data],
+                device=self.device,
             )
             self._root_link_lin_vel_b.timestamp = self._sim_timestamp
         if self._root_link_lin_vel_b_ta is None:
@@ -1426,6 +1440,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self._num_instances,
                 inputs=[self.root_link_ang_vel_w, self.root_link_quat_w],
                 outputs=[self._root_link_ang_vel_b.data],
+                device=self.device,
             )
             self._root_link_ang_vel_b.timestamp = self._sim_timestamp
         if self._root_link_ang_vel_b_ta is None:
@@ -1447,6 +1462,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self._num_instances,
                 inputs=[self.root_com_lin_vel_w, self.root_link_quat_w],
                 outputs=[self._root_com_lin_vel_b.data],
+                device=self.device,
             )
             self._root_com_lin_vel_b.timestamp = self._sim_timestamp
         if self._root_com_lin_vel_b_ta is None:
@@ -1468,6 +1484,7 @@ class ArticulationData(BaseArticulationData):
                 dim=self._num_instances,
                 inputs=[self.root_com_ang_vel_w, self.root_link_quat_w],
                 outputs=[self._root_com_ang_vel_b.data],
+                device=self.device,
             )
             self._root_com_ang_vel_b.timestamp = self._sim_timestamp
         if self._root_com_ang_vel_b_ta is None:
@@ -2336,6 +2353,7 @@ class ArticulationData(BaseArticulationData):
             outputs=[
                 self._default_root_state,
             ],
+            device=self.device,
         )
         if self._default_root_state_ta is None:
             self._default_root_state_ta = ProxyArray(self._default_root_state)
@@ -2362,6 +2380,7 @@ class ArticulationData(BaseArticulationData):
                 outputs=[
                     self._root_state_w.data,
                 ],
+                device=self.device,
             )
             self._root_state_w.timestamp = self._sim_timestamp
 
@@ -2390,6 +2409,7 @@ class ArticulationData(BaseArticulationData):
                 outputs=[
                     self._root_link_state_w.data,
                 ],
+                device=self.device,
             )
             self._root_link_state_w.timestamp = self._sim_timestamp
 
@@ -2418,6 +2438,7 @@ class ArticulationData(BaseArticulationData):
                 outputs=[
                     self._root_com_state_w.data,
                 ],
+                device=self.device,
             )
             self._root_com_state_w.timestamp = self._sim_timestamp
 
@@ -2451,6 +2472,7 @@ class ArticulationData(BaseArticulationData):
                 outputs=[
                     self._body_state_w.data,
                 ],
+                device=self.device,
             )
             self._body_state_w.timestamp = self._sim_timestamp
 
@@ -2483,6 +2505,7 @@ class ArticulationData(BaseArticulationData):
                 outputs=[
                     self._body_link_state_w.data,
                 ],
+                device=self.device,
             )
             self._body_link_state_w.timestamp = self._sim_timestamp
 
@@ -2517,6 +2540,7 @@ class ArticulationData(BaseArticulationData):
                 outputs=[
                     self._body_com_state_w.data,
                 ],
+                device=self.device,
             )
             self._body_com_state_w.timestamp = self._sim_timestamp
 

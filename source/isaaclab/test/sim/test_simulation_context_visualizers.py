@@ -536,7 +536,7 @@ def test_kit_visualizer_default_camera_source_does_not_require_camera_prim(monke
 
     visualizer._setup_viewport()
 
-    assert not cfg.tiled_cam_view
+    assert not cfg.streaming_view
     assert applied_camera_poses == [(cfg.eye, cfg.lookat)]
     assert viewport_window.viewport_api.set_active_camera_calls == []
     assert visualizer._controlled_camera_path == "/OmniverseKit_Persp"
@@ -706,8 +706,8 @@ def test_default_visualizer_cfg_applies_to_cli_created_configs():
         "/isaaclab/visualizer/max_visible_envs": None,
     }
     default_cfg = VisualizerCfg(
-        tiled_cam_target_prim_path="/World/envs/*/Object",
-        tiled_cam_eye=(1.0, -1.0, 0.5),
+        streaming_cam_target_prim_path="/World/envs/*/Object",
+        streaming_cam_eye=(1.0, -1.0, 0.5),
     )
     ctx = _make_context_with_settings(settings, default_visualizer_cfg=default_cfg)
 
@@ -715,8 +715,8 @@ def test_default_visualizer_cfg_applies_to_cli_created_configs():
 
     assert len(cfgs) == 1
     assert isinstance(cfgs[0], NewtonVisualizerCfg)
-    assert cfgs[0].tiled_cam_target_prim_path == "/World/envs/*/Object"
-    assert cfgs[0].tiled_cam_eye == (1.0, -1.0, 0.5)
+    assert cfgs[0].streaming_cam_target_prim_path == "/World/envs/*/Object"
+    assert cfgs[0].streaming_cam_eye == (1.0, -1.0, 0.5)
 
 
 def test_default_visualizer_cfg_applies_to_explicit_visualizer_cfgs():

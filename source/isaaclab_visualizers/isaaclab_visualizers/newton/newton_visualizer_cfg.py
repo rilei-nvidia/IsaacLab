@@ -3,7 +3,9 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Configuration for Newton OpenGL Visualizer."""
+"""Configuration classes for Newton GL and RTX visualizer backends."""
+
+from __future__ import annotations
 
 from isaaclab.utils.configclass import configclass
 from isaaclab.visualizers.visualizer_cfg import VisualizerCfg
@@ -11,10 +13,12 @@ from isaaclab.visualizers.visualizer_cfg import VisualizerCfg
 
 @configclass
 class NewtonVisualizerCfg(VisualizerCfg):
-    """Configuration for Newton OpenGL visualizer."""
+    """Shared configuration base for Newton visualizer backends.
 
-    visualizer_type: str = "newton"
-    """Type identifier for Newton visualizer."""
+    Use :class:`NewtonGLVisualizerCfg` for the OpenGL rasterizer or
+    :class:`NewtonRTXVisualizerCfg` for the OVRTX path tracer. This class is
+    not intended to be instantiated directly.
+    """
 
     window_width: int = 1920
     """Window width in pixels."""
@@ -26,7 +30,7 @@ class NewtonVisualizerCfg(VisualizerCfg):
     """Run the Newton viewer without requiring a display server."""
 
     update_frequency: int = 1
-    """Visualizer update frequency (updates every N frames)."""
+    """Visualizer update frequency (renders every N simulation frames)."""
 
     world_spacing: tuple[float, float, float] = (0.0, 0.0, 0.0)
     """Visual spacing between simulation worlds along each axis [m].
@@ -55,11 +59,20 @@ class NewtonVisualizerCfg(VisualizerCfg):
     show_particles: bool = False
     """Show particle visualization."""
 
-    particle_color: tuple[float, float, float] | None = None
-    """Optional particle color RGB [0, 1]. If None, use Newton viewer defaults.
 
-    Values are passed through to the Newton viewer unchanged.
+@configclass
+class NewtonGLVisualizerCfg(NewtonVisualizerCfg):
+    """Configuration for the Newton OpenGL rasterizer visualizer.
+
+    Selects Newton's OpenGL backend — fast local window with the full Isaac Lab
+    feature set: tiled camera panel, particle color override, and live scalar/array plots.
     """
+
+    visualizer_type: str = "newton"
+    """Factory type identifier. Do not change."""
+
+    particle_color: tuple[float, float, float] | None = None
+    """Optional particle color RGB [0, 1]. Uses Newton viewer defaults when ``None``."""
 
     enable_shadows: bool = True
     """Enable shadow rendering."""
@@ -71,10 +84,36 @@ class NewtonVisualizerCfg(VisualizerCfg):
     """Enable wireframe rendering."""
 
     sky_upper_color: tuple[float, float, float] = (0.2, 0.4, 0.6)
-    """Sky upper color RGB [0,1]."""
+    """Sky upper color RGB [0, 1]."""
 
     sky_lower_color: tuple[float, float, float] = (0.5, 0.6, 0.7)
-    """Sky lower color RGB [0,1]."""
+    """Sky lower color RGB [0, 1]."""
 
     light_color: tuple[float, float, float] = (1.0, 1.0, 1.0)
-    """Light color RGB [0,1]."""
+    """Light color RGB [0, 1]."""
+
+
+@configclass
+class NewtonRTXVisualizerCfg(NewtonVisualizerCfg):
+    """Configuration for the Newton OVRTX path-tracer visualizer.
+
+    Selects Newton's OVRTX backend — photorealistic rendering using the same
+    ``begin_frame / log_state / end_frame`` step interface as the GL backend.
+
+    .. note::
+        RTX render quality settings (fps, lighting environment, denoiser, etc.)
+        are not yet exposed here; ``ViewerRTX`` defaults are used. These will be
+        surfaced in a future revision in a way that is consistent across all
+        RTX-capable renderers.
+
+    .. note::
+        Tiled camera panel and ``render_rgb_array()`` require ``ViewerRTX.get_frame()``
+        support from the Newton team and are currently stubs.
+    """
+
+    visualizer_type: str = "newton_rtx"
+    """Factory type identifier. Do not change."""
+
+    rtx_environment: str = "studio"
+    """OVRTX lighting environment.  One of ``"default"`` (dome + distant light),
+    ``"studio"`` (three-point rig for cleaner highlights), or ``"none"``."""
