@@ -30,9 +30,12 @@ Isaac Lab supports four visualizer backends, each optimized for different use ca
    * - **Omniverse**
      - High-fidelity, Isaac Sim integration
      - USD, visualization markers, live plots, tiled camera panel
-   * - **Newton**
+   * - **Newton GL**
      - Fast iteration
-     - Low overhead, visualization markers, tiled camera panel
+     - Low overhead, visualization markers, streaming camera panel
+   * - **Newton RTX**
+     - OVRTX path-tracing
+     - Photorealistic rendering, studio lighting, streaming camera panel
    * - **Rerun**
      - Remote viewing, replay
      - Webviewer, time scrubbing, recording export, visualization markers
@@ -76,8 +79,11 @@ Launch visualizers from the command line with ``--visualizer`` (or ``--viz`` ali
           # Launch all visualizers (comma-delimited list, no spaces)
           uv run isaaclab train --rl_library rsl_rl --task Isaac-Cartpole --viz kit,newton,rerun
 
-          # Launch only the Newton visualizer
+          # Launch only the Newton GL visualizer
           uv run isaaclab train --rl_library rsl_rl --task Isaac-Cartpole --viz newton
+
+          # Launch the Newton RTX path-tracer visualizer (requires OVRTX)
+          uv run isaaclab train --rl_library rsl_rl --task Isaac-Cartpole presets=newton_mjwarp --viz newton_rtx
 
           # Launch the Viser web-based visualizer
           uv run isaaclab train --rl_library rsl_rl --task Isaac-Cartpole --viz viser
@@ -90,8 +96,11 @@ Launch visualizers from the command line with ``--visualizer`` (or ``--viz`` ali
           # Launch all visualizers (comma-delimited list, no spaces)
           ./isaaclab.sh train --rl_library rsl_rl --task Isaac-Cartpole --viz kit,newton,rerun
 
-          # Launch only the Newton visualizer
+          # Launch only the Newton GL visualizer
           ./isaaclab.sh train --rl_library rsl_rl --task Isaac-Cartpole --viz newton
+
+          # Launch the Newton RTX path-tracer visualizer (requires OVRTX)
+          ./isaaclab.sh train --rl_library rsl_rl --task Isaac-Cartpole presets=newton_mjwarp --viz newton_rtx
 
           # Launch the Viser web-based visualizer
           ./isaaclab.sh train --rl_library rsl_rl --task Isaac-Cartpole --viz viser
@@ -228,49 +237,14 @@ selection and visual offsets. This includes point-cloud and task-geometry marker
 Camera Modes
 ~~~~~~~~~~~~
 
-To configure camera modes, including launching a tiled camera view, edit the fields described below in the
-``VisualizerCfg`` config class.
-
-For runnable Kit and Newton examples that use generated and existing tiled cameras,
-see :doc:`/source/how-to/visualizer_tiled_camera`.
-
 The default visualizer camera mode is interactive, with ``eye`` and ``lookat`` specifying the initial pose.
-Kit and Newton visualizers can also run additional tiled camera image panels.
+All visualizer backends also support a **streaming camera view** that composites per-environment
+ground-truth frames into a single image panel updated every step.
 
-If ``tiled_cam_view=True`` is set, another window is launched in the visualizer which shows
-a non-interactive tiled camera image view. Number of tiles is capped at 100.
+.. note::
 
-Kit tiled camera views work without an additional camera option.
-
-.. list-table:: Camera Modes
-   :header-rows: 1
-   :widths: 24 30 46
-
-   * - Mode
-     - Key fields
-     - Behavior
-   * - **Default interactive**
-     - ``tiled_cam_view=False``, ``eye=(4, -4, 3)``, ``lookat=(0, 0, 0)``
-     - Interactive visualizer camera starts at ``eye`` and looks at the fixed ``lookat`` coordinate.
-   * - Generated tiled camera
-     - ``tiled_cam_view=True``, ``tiled_cam_prim_path=None``, ``tiled_cam_target_prim_path="/World/envs/*/Robot"``
-     - The visualizer creates per-env cameras. Each camera looks at the matched target prim, with ``tiled_cam_eye`` as an offset from that target.
-       Note that the ``tiled_cam_target_prim_path`` has a default value, but different environments may require different paths.
-   * - Existing tiled camera sensors
-     - ``tiled_cam_view=True``, ``tiled_cam_prim_path="/World/envs/*/Camera"``
-     - The visualizer displays existing Isaac Lab ``Camera`` sensor output. Generated-camera fields such as ``tiled_cam_eye`` and
-       ``tiled_cam_target_prim_path`` are ignored. Note that the ``tiled_cam_prim_path`` has a default value, but different
-       environments may require different paths. This mode requires an environment that registers Isaac Lab ``Camera`` sensors
-       in ``scene.sensors``. For Cartpole, use a camera task such as ``Isaac-Cartpole-Camera``. The plain ``Isaac-Cartpole``
-       task has no ``/World/envs/*/Camera`` sensor, so leave ``tiled_cam_prim_path=None`` to use generated visualizer cameras.
-
-**How to Access the Tiled Camera View in the UI**
-
-- **Kit Visualizer:**
-  To display the tiled camera panel, select the "Visualizer Tiled Camera" viewport from the viewport selection menu.
-
-- **Newton Visualizer:**
-  To enable or disable the tiled camera panel, use the "Visualizer Tiled Camera" option found in the Tiled Camera View dropdown menu on the left sidebar.
+   The legacy ``tiled_cam_*`` fields (``tiled_cam_view``, ``tiled_cam_prim_path``, etc.) have been
+   replaced by the ``streaming_*`` fields described in the :ref:`streaming-camera-view` section below.
 
 
 Streaming Camera View
