@@ -1,13 +1,13 @@
 .. _how-to-visualizer-tiled-camera:
 
-Using the Visualizer Streaming Camera View
-==========================================
+Using Visualizer Tiled Cameras
+==============================
 
 .. currentmodule:: isaaclab
 
 For general visualizer documentation, see :doc:`/source/overview/core-concepts/visualization`.
 
-The visualizer streaming camera view is a live monitoring and debugging tool. It composites
+The visualizer tiled camera view is a live monitoring and debugging tool. It composites
 per-environment ground-truth camera frames — RGB, depth, segmentation, or surface normals —
 into a single panel that updates every step. The panel can display cameras that follow the
 robots automatically, or stream from existing scene camera sensors.
@@ -15,15 +15,15 @@ robots automatically, or stream from existing scene camera sensors.
 This guide is accompanied by the ``run_tiled_camera_visualizer.py`` script in the
 ``IsaacLab/scripts/tutorials/07_visualizers`` directory.
 
-Running this script demonstrates two ways to use the streaming camera view:
+Running this script demonstrates two ways to use tiled cameras:
 
 - auto-created cameras pointed at and following moving AnymalD robots shown in the Kit visualizer
 - streaming from existing wrist-mounted robot cameras shown in the Newton visualizer
 
 .. note::
 
-   The streaming camera view is supported in the Kit, Newton GL, Rerun, and Viser visualizers.
-   The Newton RTX visualizer accepts the configuration but does not display the panel (experimental).
+   The tiled camera view is supported in the Kit, Newton GL, Rerun, and Viser visualizers.
+   The Newton RTX visualizer is experimental and does not display the tiled panel in this release.
 
 .. dropdown:: Code for run_tiled_camera_visualizer.py
    :icon: code
@@ -37,9 +37,9 @@ Running this script demonstrates two ways to use the streaming camera view:
 Example One: Following AnymalD Robots
 --------------------------------------
 
-The Kit Visualizer shows the streaming camera view in a separate tab inside the main
+The Kit Visualizer shows the tiled camera view in a separate tab inside the main
 Viewport window. The highlighted tab area in the figures below shows where to
-toggle between the interactive viewport and the streaming camera view.
+toggle between the interactive viewport and the tiled camera view.
 
 .. figure:: ../_static/visualizers/kit_viz_anymal_iteractive_view.jpg
    :width: 100%
@@ -49,12 +49,12 @@ toggle between the interactive viewport and the streaming camera view.
 
 .. figure:: ../_static/visualizers/kit_viz_anymal_tiled_view.jpg
    :width: 100%
-   :alt: Kit visualizer streaming camera view for AnymalD robots
+   :alt: Kit visualizer tiled camera view for AnymalD robots
 
-   Kit visualizer showing the streaming camera view generated for selected AnymalD
+   Kit visualizer showing the tiled camera view generated for selected AnymalD
    robots.
 
-Note, you can also display the main visualizer camera and the streaming camera view side by
+Note, you can also display the main visualizer camera and the tiled camera view side by
 side for dual monitoring.
 
 To run the tutorial with the args for this example, use:
@@ -74,16 +74,16 @@ camera is offset by ``(3.0, 3.0, 3.0)`` from each robot base. If you change
 ``streaming_cam_eye`` (for example, to ``(0, 0, 5)``), the panel will show a
 top-down view instead.
 
-In this example, there are 256 total environments, and we randomly sample 36 to stream to the
-camera view.
+In this example, there are 256 total environments, and we randomly sample 36 to show in the
+tiled camera view.
 
-The Kit visualizer streaming camera view does not require an additional camera option.
+The Kit visualizer tiled camera view does not require an additional camera option.
 
 
 Example Two: Streaming from Robot-Mounted Cameras
 -------------------------------------------------
 
-The Newton visualizer provides a streaming camera view in a lightweight OpenGL window.
+The Newton visualizer provides a tiled camera view in a lightweight OpenGL window.
 Use the ``Streaming Camera View`` dropdown in the left-hand sidebar to show or hide the panel.
 
 .. figure:: ../_static/visualizers/newton_viz_galbot_interactive_view.jpg
@@ -94,9 +94,9 @@ Use the ``Streaming Camera View`` dropdown in the left-hand sidebar to show or h
 
 .. figure:: ../_static/visualizers/newton_viz_galbot_tiled_view.jpg
    :width: 100%
-   :alt: Newton visualizer streaming camera view for Galbot wrist cameras
+   :alt: Newton visualizer tiled camera view for Galbot wrist cameras
 
-   Newton visualizer showing the selected Galbot head-camera feeds in the streaming
+   Newton visualizer showing the selected Galbot head-camera feeds in the tiled
    camera panel.
 
 In this example, we use the Galbot cube stacking environment, which comes with
@@ -107,7 +107,7 @@ To launch this example, run:
 
 .. code-block:: bash
 
-   uv run isaaclab train --rl_library rsl_rl --task IsaacContrib-Stack-Cube-Galbot-Left-Arm-Gripper-Visuomotor --num_envs 25 --viz newton
+   uv run isaaclab train --rl_library rsl_rl --task IsaacContrib-Stack-Cube-Galbot-Left-Arm-Gripper-Visuomotor --num_envs 25 --viz newton_gl
 
 Within the script, the ``NewtonGLVisualizerCfg`` is configured to stream images from the
 existing camera sensor located at
@@ -122,7 +122,7 @@ In this demo, 25 environments are simulated, and 12 camera feeds are shown in th
 Configuration notes
 -------------------
 
-To customize streaming camera behavior, edit the highlighted ``VisualizerCfg`` fields in
+To customize tiled camera behavior, edit the highlighted ``VisualizerCfg`` fields in
 ``run_tiled_camera_visualizer.py``:
 
 * For auto-created cameras, ``streaming_cam_target_prim_path`` chooses the followed prim and

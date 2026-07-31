@@ -305,15 +305,10 @@ golden-ratio hue palette to assign each class ID a distinct color.
 - **Rerun** — pushes the composited frame to a 2D image view as the primary camera display each step.
 - **Viser** — streams the frame as a background image updated each step.
 
-.. warning::
+.. note::
 
-   **Newton RTX Visualizer is experimental.** The following features are not yet supported
-   when using ``--viz newton_rtx``:
-
-   - **Streaming camera panel** — ``streaming_view=True`` creates a ``TiledCamera`` and
-     generates frames, but the HUD sidebar panel is not displayed in the Newton RTX window.
-   - **Visualization markers** — marker overlays are silently skipped.
-   - **Live plots** — scalar/array logging calls are no-ops in ``ViewerRTX``.
+   The Newton RTX visualizer is experimental. Visualization markers, live plots, and the
+   streaming camera panel are not supported in this release.
 
    When using the OVRTX renderer for the streaming camera (``streaming_cam_renderer="ovrtx"``),
    the ``patchelf`` SONAME fix must be applied first — see the installation notes for
@@ -736,15 +731,8 @@ instead:
 **Newton RTX Visualizer (Experimental)**
 
 The Newton RTX visualizer (``--viz newton_rtx``) is currently experimental.
-The following features are not yet supported and are silently skipped at runtime:
-
-- **Visualization markers** — robot/contact/frame overlays are not rendered.
-- **Live plots** — per-step scalar and array logging is a no-op.
-- **Streaming camera panel** — ``streaming_view=True`` is accepted and the underlying
-  ``TiledCamera`` is created, but the composited panel is not displayed in the Newton RTX window.
-
-These features are fully supported by all other visualizer backends
-(Newton GL, Kit, Rerun, Viser).
+Visualization markers, live plots, and the streaming camera panel are not supported in
+this release. These features are available in all other visualizer backends.
 
 
 See Also
