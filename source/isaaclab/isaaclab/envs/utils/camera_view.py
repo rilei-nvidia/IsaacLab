@@ -24,6 +24,11 @@ from isaaclab.sim.views import FrameView
 _GENERATED_CAMERA_NAME = "VisualizerCamera"
 VISUALIZER_TILED_CAMERA_MAX_TILES = 100
 
+# Shared streaming camera registry.  Keyed by renderer class name so that OVRTX,
+# which can only have one instance per process, is created once and reused by all
+# visualizers that request it.
+_shared_streaming_cameras: dict[str, tuple] = {}
+
 
 def resolve_tiled_env_indices(
     num_envs: int,
@@ -232,7 +237,15 @@ def create_visualizer_camera(
     renderer_cfg: Any,
     data_types: list[str] | None = None,
 ) -> tuple[Camera, list[str]]:
-    """Create an internal Camera sensor for visualizer image views."""
+    """Create an internal Camera sensor for visualizer image views.
+
+    When the renderer is a singleton (e.g. OVRTX) a shared instance is returned
+    on subsequent calls to avoid the ``/Render`` prim duplication error.
+    """
+    renderer_key = type(renderer_cfg).__name__
+    if renderer_key in _shared_streaming_cameras:
+        return _shared_streaming_cameras[renderer_key]
+
     spawn = sim_utils.PinholeCameraCfg(
         focal_length=24.0,
         focus_distance=400.0,
@@ -262,7 +275,9 @@ def create_visualizer_camera(
     )
     camera = Camera(cfg)
     ensure_camera_initialized(camera)
-    return camera, generated_paths
+    result = (camera, generated_paths)
+    _shared_streaming_cameras[renderer_key] = result
+    return result
 
 
 def remove_generated_prims(prim_paths: list[str] | None) -> None:
