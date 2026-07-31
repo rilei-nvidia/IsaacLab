@@ -47,7 +47,7 @@ class VisualizerCfg:
     # across envs and GT types, and shows the result as an image panel in interactive
     # visualizers (Newton GL, Kit) or pushes it per-step to sink-based ones (Rerun, Viser).
 
-    streaming_view: bool = False
+    streaming_view: bool = True
     """Enable the streaming camera image view."""
 
     # Source — existing sensor (takes priority when set)
@@ -82,7 +82,7 @@ class VisualizerCfg:
     * ``list[int]`` — capture exactly these env indices.
     """
 
-    streaming_gt_types: list[str] = ("rgb",)
+    streaming_gt_types: tuple[str, ...] = ("rgb",)
     """GT data types displayed left-to-right per environment row.
 
     Valid values: ``"rgb"``, ``"depth"``, ``"segmentation"``.

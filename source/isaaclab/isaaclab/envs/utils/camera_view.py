@@ -185,8 +185,11 @@ def compose_streaming_grid(
         n_gt: Number of GT types per environment.
 
     Returns:
-        Single ``uint8 (total_H, total_W, 3)`` composite image.
+        Single ``uint8 (total_H, total_W, 3)`` composite image, or a 1×1 black
+        pixel if ``frames`` is empty.
     """
+    if not frames:
+        return np.zeros((1, 1, 3), dtype=np.uint8)
     h, w = frames[0].shape[:2]
     env_cols = _best_streaming_cols(n_envs, n_gt, h, w)
     env_rows = math.ceil(n_envs / env_cols)
