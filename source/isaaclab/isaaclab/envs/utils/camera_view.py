@@ -204,12 +204,20 @@ def compose_streaming_grid(
     return canvas
 
 
+_TARGET_COMPOSITE_ASPECT = 16.0 / 9.0
+
+
 def _best_streaming_cols(n_envs: int, n_gt: int, frame_h: int, frame_w: int) -> int:
-    """Env-column count that minimises ``|log(total_W / total_H)|``."""
+    """Env-column count that minimises ``|log(total_W/total_H) - log(16/9)|``.
+
+    Targets a 16:9 landscape composite so the grid fills typical widescreen
+    display panels without excess portrait whitespace.
+    """
+    target = math.log(_TARGET_COMPOSITE_ASPECT)
     best_cols, best_score = 1, float("inf")
     for cols in range(1, n_envs + 1):
         rows = math.ceil(n_envs / cols)
-        score = abs(math.log((cols * n_gt * frame_w) / (rows * frame_h)))
+        score = abs(math.log((cols * n_gt * frame_w) / (rows * frame_h)) - target)
         if score < best_score:
             best_score, best_cols = score, cols
     return best_cols
