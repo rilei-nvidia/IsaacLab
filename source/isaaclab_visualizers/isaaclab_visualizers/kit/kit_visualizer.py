@@ -593,20 +593,24 @@ class KitVisualizer(BaseVisualizer):
             self._camera_sensor_indices = env_ids
         else:
             # Auto-generate path: requires Replicator render pipeline (--enable_cameras).
-            cameras_enabled = get_settings_manager().get("/isaaclab/cameras_enabled", False)
-            if not cameras_enabled:
-                logger.info(
-                    "[KitVisualizer] Auto-generated streaming camera skipped: pass --enable_cameras to activate it, "
-                    "or set streaming_sensor_prim_path to an existing camera sensor."
-                )
-                return
+            renderer_name = self.cfg.streaming_cam_renderer  # e.g. "newton_warp", "isaac_rtx", None
+            use_isaac_rtx = renderer_name in ("isaac_rtx", None)
+            if use_isaac_rtx:
+                cameras_enabled = get_settings_manager().get("/isaaclab/cameras_enabled", False)
+                if not cameras_enabled:
+                    logger.info(
+                        "[KitVisualizer] Auto-generated streaming camera (isaac_rtx) skipped: "
+                        "pass --enable_cameras or set streaming_cam_renderer='newton_warp' to activate "
+                        "without --enable_cameras."
+                    )
+                    return
 
-            from isaaclab_physx.renderers import IsaacRtxRendererCfg
-
+            renderer_cfg = self._resolve_streaming_renderer_cfg(renderer_name)
             count = max(1, len(env_ids))
             tile_w, tile_h = compute_tile_resolution(self.cfg.window_width, self.cfg.window_height, count)
             logger.debug(
-                "[KitVisualizer] Creating generated streaming camera: env_ids=%s tile=%sx%s",
+                "[KitVisualizer] Creating generated streaming camera: renderer=%s env_ids=%s tile=%sx%s",
+                renderer_name,
                 env_ids,
                 tile_w,
                 tile_h,
@@ -615,7 +619,7 @@ class KitVisualizer(BaseVisualizer):
                 num_envs=num_envs,
                 width=tile_w,
                 height=tile_h,
-                renderer_cfg=IsaacRtxRendererCfg(),
+                renderer_cfg=renderer_cfg,
                 data_types=sensor_keys_for_gt_types(gt_types),
             )
             self._camera_sensor_indices = env_ids
@@ -661,6 +665,19 @@ class KitVisualizer(BaseVisualizer):
         main_viewport = omni.ui.Workspace.get_window("Viewport")
         if image_window is not None and main_viewport is not None and image_window != main_viewport:
             image_window.dock_in(main_viewport, dock_position, 0.5)
+
+    def _resolve_streaming_renderer_cfg(self, renderer_name: str | None):
+        """Return a renderer cfg for the auto-generated streaming camera."""
+        from isaaclab_newton.renderers import NewtonWarpRendererCfg
+
+        if renderer_name is None or renderer_name == "newton_warp":
+            return NewtonWarpRendererCfg()
+        if renderer_name == "isaac_rtx":
+            from isaaclab_physx.renderers import IsaacRtxRendererCfg
+
+            return IsaacRtxRendererCfg()
+        logger.warning("[KitVisualizer] Unknown streaming_cam_renderer %r; falling back to newton_warp.", renderer_name)
+        return NewtonWarpRendererCfg()
 
     def _update_owned_camera_poses(self) -> None:
         """Update generated camera poses from env origins or follow prims."""

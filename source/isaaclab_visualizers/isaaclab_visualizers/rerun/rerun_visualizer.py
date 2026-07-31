@@ -310,7 +310,7 @@ class RerunVisualizer(BaseVisualizer):
             web_port=web_port,
             grpc_port=grpc_port,
             keep_historical_data=self.cfg.keep_historical_data,
-            keep_scalar_history=keep_scalar_history,
+            keep_scalar_history=self.cfg.keep_scalar_history or self.cfg.enable_live_plots,
             record_to_rrd=self.cfg.record_to_rrd,
             open_browser=self.cfg.open_browser,
         )

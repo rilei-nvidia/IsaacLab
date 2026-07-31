@@ -45,11 +45,12 @@ class RerunVisualizerCfg(VisualizerCfg):
     keep_historical_data: bool = False
     """Keep transform history for time scrubbing (False = constant memory for training)."""
 
-    keep_scalar_history: bool = True
+    keep_scalar_history: bool = False
     """Accumulate scalars as a time-series in the Rerun timeline.
 
-    ``True`` (default) — scalar values accumulate over time so live plots show a scrolling chart.
-    ``False`` — each scalar overwrites the previous value (constant memory, no chart history).
+    ``False`` (default) — each scalar overwrites the previous value (constant memory).
+    Automatically set to ``True`` when :attr:`~isaaclab.visualizers.VisualizerCfg.enable_live_plots`
+    is ``True``, so live plots show a scrolling time-series chart.
     """
 
     show_particles: bool = True
