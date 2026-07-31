@@ -700,7 +700,7 @@ def _make_context_with_settings(
 
 def test_default_visualizer_cfg_applies_to_cli_created_configs():
     settings = {
-        "/isaaclab/visualizer/types": "newton",
+        "/isaaclab/visualizer/types": "newton_gl",
         "/isaaclab/visualizer/explicit": True,
         "/isaaclab/visualizer/disable_all": False,
         "/isaaclab/visualizer/max_visible_envs": None,
@@ -772,7 +772,7 @@ def test_default_visualizer_cfg_does_not_override_explicitly_customized_fields()
 
 
 def test_is_rendering_true_when_only_cfg_visualizer_is_set():
-    cfg_visualizer = type("CfgVisualizer", (), {"visualizer_type": "newton"})()
+    cfg_visualizer = type("CfgVisualizer", (), {"visualizer_type": "newton_gl"})()
     settings = {
         "/isaaclab/render/rtx_sensors": False,
         "/isaaclab/visualizer/types": "",
@@ -784,7 +784,7 @@ def test_is_rendering_true_when_only_cfg_visualizer_is_set():
 
 
 def test_is_rendering_false_when_cli_disable_all_even_with_cfg_visualizer():
-    cfg_visualizer = type("CfgVisualizer", (), {"visualizer_type": "newton"})()
+    cfg_visualizer = type("CfgVisualizer", (), {"visualizer_type": "newton_gl"})()
     settings = {
         "/isaaclab/render/rtx_sensors": False,
         "/isaaclab/visualizer/types": "",
@@ -837,9 +837,9 @@ def test_explicit_missing_package_raises(monkeypatch: pytest.MonkeyPatch):
 
 def test_explicit_visualizer_create_failure_raises(monkeypatch: pytest.MonkeyPatch):
     """When cli_explicit, a failure in create_visualizer raises RuntimeError."""
-    failing_cfg = _FakeVisualizerCfg("newton", fail_create=True)
+    failing_cfg = _FakeVisualizerCfg("newton_gl", fail_create=True)
     settings = {
-        "/isaaclab/visualizer/types": "newton",
+        "/isaaclab/visualizer/types": "newton_gl",
         "/isaaclab/visualizer/explicit": True,
         "/isaaclab/visualizer/disable_all": False,
         "/isaaclab/visualizer/max_visible_envs": None,
@@ -856,9 +856,9 @@ def test_explicit_visualizer_create_failure_raises(monkeypatch: pytest.MonkeyPat
 
 def test_explicit_visualizer_init_failure_raises(monkeypatch: pytest.MonkeyPatch):
     """When cli_explicit, a failure in visualizer.initialize raises RuntimeError."""
-    failing_cfg = _FakeVisualizerCfg("newton", fail_init=True)
+    failing_cfg = _FakeVisualizerCfg("newton_gl", fail_init=True)
     settings = {
-        "/isaaclab/visualizer/types": "newton",
+        "/isaaclab/visualizer/types": "newton_gl",
         "/isaaclab/visualizer/explicit": True,
         "/isaaclab/visualizer/disable_all": False,
         "/isaaclab/visualizer/max_visible_envs": None,
@@ -904,7 +904,7 @@ def test_non_explicit_unknown_type_silently_skipped(caplog):
 
 def test_non_explicit_create_failure_silently_logged(monkeypatch: pytest.MonkeyPatch, caplog):
     """Without --visualizer flag, create_visualizer failures are logged, not raised."""
-    failing_cfg = _FakeVisualizerCfg("newton", fail_create=True)
+    failing_cfg = _FakeVisualizerCfg("newton_gl", fail_create=True)
     settings = {
         "/isaaclab/visualizer/types": "",
         "/isaaclab/visualizer/explicit": False,
