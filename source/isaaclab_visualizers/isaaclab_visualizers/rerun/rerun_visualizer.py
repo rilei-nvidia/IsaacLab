@@ -294,9 +294,6 @@ class RerunVisualizer(BaseVisualizer):
             logger.info("[RerunVisualizer] Reusing existing rerun server at %s.", rerun_address)
 
         viewer_address = None if start_server_in_viewer else rerun_address
-        # Force scalar history on when live plots are enabled so that
-        # log_scalar() uses static=False and Rerun builds time-series curves.
-        keep_scalar_history = self.cfg.keep_scalar_history or getattr(self.cfg, "enable_live_plots", True)
         self._viewer = NewtonViewerRerun(
             app_id=self.cfg.app_id,
             address=viewer_address,

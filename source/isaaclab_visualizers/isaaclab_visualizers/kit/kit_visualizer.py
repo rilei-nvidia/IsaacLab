@@ -27,6 +27,8 @@ from isaaclab.envs.utils.camera_view import (
     VISUALIZER_TILED_CAMERA_MAX_TILES,
     apply_camera_target_positions,
     camera_gt_batch,
+    camera_rgb_batch,
+    compose_rgb_grid_tensor,
     compose_streaming_grid,
     compute_tile_resolution,
     create_visualizer_camera,

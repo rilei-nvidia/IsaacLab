@@ -98,8 +98,12 @@ def _make_newton_visualizer_cfg(env_cfg):
         return visualizer_cfg
 
     # Here are other robot mounted camera options for this environment
-    # visualizer_cfg.streaming_sensor_prim_path = "/World/envs/env_.*/Robot/left_arm_camera_sim_view_frame/left_camera"
-    # visualizer_cfg.streaming_sensor_prim_path = "/World/envs/env_.*/Robot/right_arm_camera_sim_view_frame/right_camera"
+    # visualizer_cfg.streaming_sensor_prim_path = (
+    #     "/World/envs/env_.*/Robot/left_arm_camera_sim_view_frame/left_camera"
+    # )
+    # visualizer_cfg.streaming_sensor_prim_path = (
+    #     "/World/envs/env_.*/Robot/right_arm_camera_sim_view_frame/right_camera"
+    # )
     visualizer_cfg.streaming_sensor_prim_path = None
     visualizer_cfg.streaming_cam_eye = (3.0, 3.0, 3.0)
     visualizer_cfg.streaming_cam_target_prim_path = "/World/envs/*/Robot/base"
