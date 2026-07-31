@@ -562,13 +562,8 @@ class KitVisualizer(BaseVisualizer):
             return
         cameras_enabled = get_settings_manager().get("/isaaclab/cameras_enabled", False)
         if not cameras_enabled:
-            if self._runtime_headless:
-                logger.debug("[KitVisualizer] Streaming view skipped: headless mode without --enable_cameras.")
-                return
-            raise RuntimeError(
-                "[KitVisualizer] streaming_view=True requires camera rendering support. "
-                "Disable streaming_view or pass --enable_cameras."
-            )
+            logger.info("[KitVisualizer] Streaming view skipped: pass --enable_cameras to activate it.")
+            return
 
         gt_types = list(self.cfg.streaming_gt_types)
         for gt in gt_types:
