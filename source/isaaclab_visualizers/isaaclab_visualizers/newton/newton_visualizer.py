@@ -190,36 +190,25 @@ class _NewtonViewerUIMixin:
         # Suppress Newton's own "Logged Images" sidebar section.
         image_logger.draw_controls = lambda: None
 
-        # Override draw() to size the floating panel to fill available width at
-        # the composite image's exact aspect ratio.  entry.tile_aspect = H/W for
-        # the logged image (set by Newton when image_logger.log() is called), so
-        # panel_H = panel_W * tile_aspect gives a pixel-perfect fit with no dead space.
+        # Override draw() to open the floating panel at 75% of available space.
         _orig_draw = type(image_logger).draw
 
         def _draw_large(self_logger: object) -> None:
             entry = self_logger._images.get(self_logger._selected)
-            if entry is not None:
+            if entry is not None and not entry.window_initialized:
                 from imgui_bundle import imgui as _imgui
 
                 vp = _imgui.get_main_viewport()
                 sidebar_w = float(self_logger._sidebar_width_px)
                 avail_w = max(320.0, vp.work_size.x - sidebar_w)
                 avail_h = max(240.0, vp.work_size.y)
-                # tile_aspect = H/W of the composite stored by Newton on log().
-                # Run every frame so the size corrects itself once the first
-                # image is logged (tile_aspect is 1.0 default until then).
-                tile_aspect = max(0.01, float(getattr(entry, "tile_aspect", 9.0 / 16.0)))
-                w = avail_w
-                h = w * tile_aspect
-                if h > avail_h:
-                    h = avail_h
-                    w = h / tile_aspect
+                w = avail_w * 0.75
+                h = avail_h * 0.75
                 x = sidebar_w + (avail_w - w) * 0.5
                 y = (avail_h - h) * 0.5
-                if not entry.window_initialized:
-                    _imgui.set_next_window_pos(_imgui.ImVec2(float(x), float(y)), _imgui.Cond_.always)
-                _imgui.set_next_window_size(_imgui.ImVec2(float(w), float(h)), _imgui.Cond_.always)
-                entry.window_initialized = True  # prevent Newton's own one-time sizing
+                _imgui.set_next_window_pos(_imgui.ImVec2(float(x), float(y)), _imgui.Cond_.once)
+                _imgui.set_next_window_size(_imgui.ImVec2(float(w), float(h)), _imgui.Cond_.once)
+                entry.window_initialized = True  # prevent Newton's own sizing
             return _orig_draw(self_logger)
 
         image_logger.draw = types.MethodType(_draw_large, image_logger)

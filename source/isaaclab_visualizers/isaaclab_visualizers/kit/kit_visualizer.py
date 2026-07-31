@@ -694,15 +694,6 @@ class KitVisualizer(BaseVisualizer):
         )
         self._set_generated_usd_camera_poses(eyes, targets)
 
-    def _resize_image_window_to_aspect(self, img_h: int, img_w: int) -> None:
-        """Resize the streaming window height to match the composite image's aspect ratio."""
-        if self._camera_image_window is None or img_w <= 0 or img_h <= 0:
-            return
-        panel_w = max(320, int(self._camera_image_window.width))
-        correct_h = int(panel_w * img_h / img_w)
-        if abs(int(self._camera_image_window.height) - correct_h) > 4:
-            self._camera_image_window.height = correct_h
-
     def _update_camera_image_panel(self, dt: float) -> None:
         """Refresh the streaming image panel with composited multi-GT output."""
         if self._camera_sensor is None or self._camera_image_provider is None:
@@ -748,7 +739,6 @@ class KitVisualizer(BaseVisualizer):
                     self._camera_image_provider.set_bytes_data_from_gpu(
                         int(image.data_ptr()), [int(image.shape[1]), int(image.shape[0])], gf.TextureFormat.RGBA8_UNORM
                     )
-                    self._resize_image_window_to_aspect(image.shape[0], image.shape[1])
                     return
                 except Exception as exc:
                     if not self._warned_gpu_upload_failure:
@@ -762,7 +752,6 @@ class KitVisualizer(BaseVisualizer):
             image = np.concatenate((image, alpha), axis=2)
         image = np.ascontiguousarray(image)
         self._camera_image_provider.set_bytes_data(image.flatten().data, [image.shape[1], image.shape[0]])
-        self._resize_image_window_to_aspect(image.shape[0], image.shape[1])
 
     def _sync_camera_pose_updates_to_kit(self) -> None:
         """Flush generated camera pose writes before camera RGB is sampled."""
