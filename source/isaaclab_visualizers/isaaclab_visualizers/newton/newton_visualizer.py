@@ -1085,6 +1085,12 @@ class NewtonVisualizer(BaseVisualizer):
         renderer_name = self.cfg.streaming_cam_renderer
         if renderer_name is None or renderer_name == "newton_warp":
             return NewtonWarpRendererCfg()
+        if renderer_name == "isaac_rtx":
+            logger.info(
+                "[%s] streaming_cam_renderer='isaac_rtx' is not available in Newton; using newton_warp.",
+                type(self).__name__,
+            )
+            return NewtonWarpRendererCfg()
         if renderer_name == "ovrtx":
             try:
                 from isaaclab_newton.renderers import NewtonOVRTXRendererCfg

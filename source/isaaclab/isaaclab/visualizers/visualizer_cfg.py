@@ -66,7 +66,7 @@ class VisualizerCfg:
     streaming_cam_eye: tuple[float, float, float] = (4.0, -4.0, 3.0)
     """Eye offset [m] for the auto-created streaming camera relative to the target prim."""
 
-    streaming_cam_renderer: str | None = "newton_warp"
+    streaming_cam_renderer: str | None = "isaac_rtx"
     """Renderer for the auto-created streaming camera.
 
     One of ``"newton_warp"``, ``"ovrtx"``, ``"isaac_rtx"``, or ``None`` to use
