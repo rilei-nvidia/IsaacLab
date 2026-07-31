@@ -12,10 +12,6 @@ per-environment ground-truth camera frames — RGB, depth, segmentation, or surf
 into a single panel that updates every step. The panel can display cameras that follow the
 robots automatically, or stream from existing scene camera sensors.
 
-This feature was previously known as the *tiled camera view*. The ``tiled_cam_*`` fields have
-been replaced by the ``streaming_*`` fields described in
-:ref:`streaming-camera-view` and below.
-
 This guide is accompanied by the ``run_tiled_camera_visualizer.py`` script in the
 ``IsaacLab/scripts/tutorials/07_visualizers`` directory.
 

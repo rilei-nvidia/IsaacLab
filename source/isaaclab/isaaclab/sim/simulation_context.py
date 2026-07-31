@@ -44,7 +44,9 @@ from .spawners import DomeLightCfg, GroundPlaneCfg
 logger = logging.getLogger(__name__)
 
 # Visualizer type names (CLI and config). App launcher parses CSV and stores as a space-separated setting.
-_VISUALIZER_TYPES = ("newton", "newton_rtx", "rerun", "viser", "kit")
+_VISUALIZER_TYPES = ("newton_gl", "newton_rtx", "rerun", "viser", "kit")
+# Deprecated aliases mapped to their canonical names.
+_VISUALIZER_ALIASES = {"newton": "newton_gl"}
 
 
 def _resolve_physics_cfg(physics_cfg: Any, use_isaac_sim: bool) -> PhysicsCfg:
@@ -373,15 +375,26 @@ class SimulationContext:
         default_configs = []
         cfg_class_names = {
             "kit": "KitVisualizerCfg",
-            "newton": "NewtonGLVisualizerCfg",
+            "newton_gl": "NewtonGLVisualizerCfg",
             "newton_rtx": "NewtonRTXVisualizerCfg",
             "rerun": "RerunVisualizerCfg",
             "viser": "ViserVisualizerCfg",
         }
-        # newton_rtx lives in the same package as newton.
-        module_overrides = {"newton_rtx": "isaaclab_visualizers.newton"}
+        # newton_gl and newton_rtx both live in the isaaclab_visualizers.newton package.
+        module_overrides = {"newton_gl": "isaaclab_visualizers.newton", "newton_rtx": "isaaclab_visualizers.newton"}
         for viz_type in requested_visualizers:
             try:
+                # Resolve deprecated aliases before lookup.
+                if viz_type in _VISUALIZER_ALIASES:
+                    canonical = _VISUALIZER_ALIASES[viz_type]
+                    import warnings
+
+                    warnings.warn(
+                        f"Visualizer type '{viz_type}' is deprecated. Use '{canonical}' instead.",
+                        DeprecationWarning,
+                        stacklevel=2,
+                    )
+                    viz_type = canonical
                 if viz_type not in _VISUALIZER_TYPES:
                     logger.warning(
                         f"[SimulationContext] Unknown visualizer type '{viz_type}' requested. "
@@ -976,8 +989,9 @@ def build_simulation_context(
         add_ground_plane: Whether to add a ground plane. Defaults to False.
         add_lighting: Whether to add a dome light. Defaults to False.
         auto_add_lighting: Whether to auto-add lighting if GUI present. Defaults to False.
-        visualizers: List of visualizer backend keys to enable (e.g. ``["kit", "newton", "rerun"]``).
-            Valid types: ``"kit"``, ``"newton"``, ``"rerun"``, ``"viser"``.
+        visualizers: List of visualizer backend keys to enable (e.g. ``["kit", "newton_gl", "rerun"]``).
+            Valid types: ``"kit"``, ``"newton_gl"``, ``"newton_rtx"``, ``"rerun"``, ``"viser"``.
+            ``"newton"`` is a deprecated alias for ``"newton_gl"``.
             When provided, sets the ``/isaaclab/visualizer/types`` setting so the
             existing visualizer resolution machinery picks them up. Defaults to None.
 
