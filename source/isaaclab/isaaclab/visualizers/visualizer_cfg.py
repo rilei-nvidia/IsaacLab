@@ -69,9 +69,8 @@ class VisualizerCfg:
     streaming_cam_renderer: str | None = "ovrtx"
     """Renderer for the auto-created streaming camera.
 
-    One of ``"newton_warp"``, ``"ovrtx"``, ``"isaac_rtx"``, or ``None`` to use
-    the backend default.  Ignored when :attr:`streaming_sensor_prim_path` is set.
-    Validated at initialisation time.
+    One of ``"newton_warp"``, ``"ovrtx"``, or ``None`` (backend default).
+    Ignored when :attr:`streaming_sensor_prim_path` is set.
     """
 
     # Shared settings

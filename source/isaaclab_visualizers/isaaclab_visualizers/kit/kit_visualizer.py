@@ -592,21 +592,11 @@ class KitVisualizer(BaseVisualizer):
             self._camera_sensor = find_camera_by_prim_path(cameras, self.cfg.streaming_sensor_prim_path, env_ids)
             self._camera_sensor_indices = env_ids
         else:
-            # Auto-generate path: requires Replicator render pipeline (--enable_cameras).
-            # ovrtx conflicts with Kit's /Render prim, so fall back to isaac_rtx in that case.
-            renderer_name = self.cfg.streaming_cam_renderer  # e.g. "newton_warp", "ovrtx", "isaac_rtx", None
+            # ovrtx conflicts with Kit's /Render prim; fall back to newton_warp.
+            renderer_name = self.cfg.streaming_cam_renderer  # "newton_warp", "ovrtx", or None
             if renderer_name == "ovrtx":
-                logger.info("[KitVisualizer] streaming_cam_renderer='ovrtx' conflicts with Kit; using isaac_rtx.")
-                renderer_name = "isaac_rtx"
-            use_isaac_rtx = renderer_name in ("isaac_rtx", None)
-            if use_isaac_rtx:
-                cameras_enabled = get_settings_manager().get("/isaaclab/cameras_enabled", False)
-                if not cameras_enabled:
-                    logger.info(
-                        "[KitVisualizer] Auto-generated streaming camera (isaac_rtx) skipped: "
-                        "pass --enable_cameras to activate."
-                    )
-                    return
+                logger.info("[KitVisualizer] streaming_cam_renderer='ovrtx' conflicts with Kit; using newton_warp.")
+                renderer_name = "newton_warp"
 
             renderer_cfg = self._resolve_streaming_renderer_cfg(renderer_name)
             count = max(1, len(env_ids))
@@ -675,10 +665,6 @@ class KitVisualizer(BaseVisualizer):
 
         if renderer_name is None or renderer_name == "newton_warp":
             return NewtonWarpRendererCfg()
-        if renderer_name == "isaac_rtx":
-            from isaaclab_physx.renderers import IsaacRtxRendererCfg
-
-            return IsaacRtxRendererCfg()
         logger.warning("[KitVisualizer] Unknown streaming_cam_renderer %r; falling back to newton_warp.", renderer_name)
         return NewtonWarpRendererCfg()
 

@@ -52,21 +52,7 @@ def _resolve_streaming_renderer_cfg(renderer_name: str | None):
         except Exception:
             logger.warning("[RerunVisualizer] streaming_cam_renderer='ovrtx' unavailable; falling back to newton_warp.")
             return NewtonWarpRendererCfg()
-    if renderer_name == "isaac_rtx":
-        try:
-            from isaaclab_physx.renderers import IsaacRtxRendererCfg
-
-            import omni.replicator.core  # noqa: F401
-
-            return IsaacRtxRendererCfg()
-        except ModuleNotFoundError:
-            logger.info(
-                "[RerunVisualizer] streaming_cam_renderer='isaac_rtx' unavailable (kitless); using newton_warp."
-            )
-            return NewtonWarpRendererCfg()
-    raise ValueError(
-        f"streaming_cam_renderer={renderer_name!r} unsupported. Use 'newton_warp', 'ovrtx', 'isaac_rtx', or None."
-    )
+    raise ValueError(f"streaming_cam_renderer={renderer_name!r} unsupported. Use 'newton_warp', 'ovrtx', or None.")
 
 
 _BACKEND_DISPLAY_NAMES = {
