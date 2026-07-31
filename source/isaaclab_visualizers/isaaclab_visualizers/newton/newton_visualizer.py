@@ -1089,6 +1089,18 @@ class NewtonVisualizer(BaseVisualizer):
             try:
                 from isaaclab_newton.renderers import NewtonOVRTXRendererCfg
 
+                try:
+                    from pxr import Usd
+
+                    stage = Usd.Stage.GetCurrentStage()
+                    if stage is not None and stage.GetPrimAtPath("/Render").IsValid():
+                        logger.info(
+                            "[%s] /Render prim already exists; streaming_cam_renderer='ovrtx' conflicts — using newton_warp.",
+                            type(self).__name__,
+                        )
+                        return NewtonWarpRendererCfg()
+                except Exception:
+                    pass
                 return NewtonOVRTXRendererCfg()
             except ImportError:
                 logger.warning(

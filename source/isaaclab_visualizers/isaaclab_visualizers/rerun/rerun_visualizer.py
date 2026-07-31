@@ -48,6 +48,20 @@ def _resolve_streaming_renderer_cfg(renderer_name: str | None):
         try:
             from isaaclab_ov.renderers import OVRTXRendererCfg
 
+            # OVRTX requires exclusive ownership of the /Render prim.  If it already
+            # exists (e.g. another OVRTX renderer is running), fall back to newton_warp.
+            try:
+                from pxr import Usd
+
+                stage = Usd.Stage.GetCurrentStage()
+                if stage is not None and stage.GetPrimAtPath("/Render").IsValid():
+                    logger.info(
+                        "[RerunVisualizer] /Render prim already exists; "
+                        "streaming_cam_renderer='ovrtx' conflicts — using newton_warp."
+                    )
+                    return NewtonWarpRendererCfg()
+            except Exception:
+                pass
             return OVRTXRendererCfg()
         except Exception:
             logger.warning("[RerunVisualizer] streaming_cam_renderer='ovrtx' unavailable; falling back to newton_warp.")
