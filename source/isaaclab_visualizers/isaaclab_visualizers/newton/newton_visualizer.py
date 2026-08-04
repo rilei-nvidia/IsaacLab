@@ -1087,12 +1087,12 @@ class NewtonVisualizer(BaseVisualizer):
             return NewtonWarpRendererCfg()
         if renderer_name == "ovrtx":
             try:
-                from isaaclab_newton.renderers import NewtonOVRTXRendererCfg
+                from isaaclab_ov.renderers import OVRTXRendererCfg
 
-                return NewtonOVRTXRendererCfg()
+                return OVRTXRendererCfg()
             except ImportError:
                 logger.warning(
-                    "[%s] streaming_cam_renderer='ovrtx' requested but NewtonOVRTXRendererCfg is not available; "
+                    "[%s] streaming_cam_renderer='ovrtx' requested but OVRTXRendererCfg is not available; "
                     "falling back to newton_warp.",
                     type(self).__name__,
                 )
@@ -1133,13 +1133,34 @@ class NewtonVisualizer(BaseVisualizer):
             self._camera_sensor_indices = env_ids
             return
 
+        renderer_cfg = self._resolve_streaming_renderer_cfg()
+        renderer_type = getattr(renderer_cfg, "renderer_type", None)
+
+        # If the scene already has a camera with the matching renderer type, reuse it rather
+        # than spawning new prims after replicate_physics has run (which would only create
+        # a prim in env_0, causing a count-mismatch error).
+        if renderer_type is not None:
+            scene_cameras = self._scene_data_provider.get_camera_sensors()
+            for cam in scene_cameras.values():
+                cam_renderer_type = getattr(getattr(cam.cfg, "renderer_cfg", None), "renderer_type", None)
+                if cam_renderer_type == renderer_type:
+                    logger.debug(
+                        "[%s] Reusing scene camera %r for streaming view (renderer_type=%r).",
+                        type(self).__name__,
+                        cam.cfg.prim_path,
+                        renderer_type,
+                    )
+                    self._camera_sensor = cam
+                    self._camera_sensor_indices = env_ids
+                    return
+
         count = max(1, len(env_ids))
         tile_w, tile_h = compute_tile_resolution(self.cfg.window_width, self.cfg.window_height, count)
         self._camera_sensor, self._generated_camera_prim_paths = create_visualizer_camera(
             num_envs=num_envs,
             width=tile_w,
             height=tile_h,
-            renderer_cfg=self._resolve_streaming_renderer_cfg(),
+            renderer_cfg=renderer_cfg,
             data_types=sensor_keys_for_gt_types(gt_types),
         )
         self._camera_sensor_indices = env_ids
@@ -1436,7 +1457,7 @@ class NewtonRTXVisualizer(NewtonVisualizer):
                 "  .venv/bin/patchelf --replace-needed librtx.hydra.so libovrtx.rtx.hydra.so "
                 "<ovrtx>/bin/plugins/rtx/libovrtx.dylib.so"
             )
-            return None
+            pass
 
         return NewtonViewerRTX(
             width=self.cfg.window_width,

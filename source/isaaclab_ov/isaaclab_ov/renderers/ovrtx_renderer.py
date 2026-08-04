@@ -521,6 +521,8 @@ class OVRTXRenderer(BaseRenderer):
         if self.cfg.temp_usd_dir is not None:
             _write_file(Path(self.cfg.temp_usd_dir), "ovrtx_renderer_stage.usda", combined_usd_string)
 
+        _write_file(Path("/home/rilei/dev/IsaacLab"), "ovrtx_renderer_stage.usda", combined_usd_string)
+
         logger.info("Loading USD into OvRTX...")
         self._renderer.open_usd_from_string(combined_usd_string)
         logger.info("OVRTX loaded USD from string successfully")
