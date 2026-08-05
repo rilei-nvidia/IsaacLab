@@ -17,6 +17,15 @@ Usage example::
         --task Isaac-Cartpole-Direct \\
         --num_envs 16 --num_steps 1000 --warmup_steps 50 \\
         presets=newton_mjwarp --visualizer none
+
+Pass ``--video`` to also write rendered frames to mp4 clips. This requires an
+active visualizer (or a scene sensor source) and makes the run render every
+step, so the reported throughput is no longer a clean runtime measurement::
+
+    uv run --extra video isaaclab benchmark runtime \\
+        --task Isaac-Cartpole-Direct --num_envs 16 --num_steps 500 \\
+        presets=newton_mjwarp --visualizer newton \\
+        --video --video_length 200 --video_dir videos
 """
 
 from __future__ import annotations
@@ -63,6 +72,30 @@ def _parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
         help="Measure a serialized synchronized simulation and outside-simulation step breakdown.",
     )
     parser.add_argument("--seed", type=int, default=None, help="Environment seed.")
+    parser.add_argument(
+        "--video",
+        action="store_true",
+        help="Record rendered frames to mp4. Requires an active visualizer (e.g. --visualizer newton).",
+    )
+    parser.add_argument(
+        "--video_source",
+        type=str,
+        default="visualizer",
+        help=(
+            "Recording source: 'visualizer', 'visualizer:<type>', 'visualizer:<type>:tiled', or 'sensor:<name>'."
+            " See VideoRecorderCfg for the full format."
+        ),
+    )
+    parser.add_argument(
+        "--video_length", type=parse_positive_int, default=200, help="Number of env steps captured per clip."
+    )
+    parser.add_argument(
+        "--video_interval",
+        type=parse_non_negative_int,
+        default=0,
+        help="Start a new clip every this many env steps; zero records a single clip.",
+    )
+    parser.add_argument("--video_dir", type=str, default="videos", help="Directory to write the recorded clips.")
     parser.add_argument("--output_path", type=str, default=".", help="Directory to write the output JSON.")
     parser.add_argument(
         "--benchmark_formatter",
@@ -77,6 +110,9 @@ def _parse_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     add_launcher_args(parser)
 
     args, remaining = setup_preset_cli(parser, argv)
+    # Frame capture needs the camera/render pipeline enabled before the app launches.
+    if args.video:
+        args.enable_cameras = True
     sys.argv = [sys.argv[0]] + remaining
     return args, remaining
 
@@ -126,6 +162,18 @@ def run(argv: list[str]) -> BenchmarkResult:
             env_cfg.sim.device = args.device
         if args.seed is not None:
             env_cfg.seed = args.seed
+        if args.video:
+            from isaaclab.envs.utils.video_recorder_cfg import VideoRecorderCfg
+
+            env_cfg.video_recorders = [
+                VideoRecorderCfg(
+                    source=args.video_source,
+                    output_dir=args.video_dir,
+                    video_length=args.video_length,
+                    video_interval=args.video_interval,
+                    output_filename_prefix="runtime",
+                )
+            ]
 
         formatter_types = [value.strip() for value in args.benchmark_formatter.split(",") if value.strip()]
         formatter_types = formatter_types or ["omniperf"]
