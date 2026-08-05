@@ -248,7 +248,7 @@
         ]
     },
     {
-        "_comment": "=== OVRTX RENDERER ===",
+        "_comment": "=== OVRTX RENDERER === _process_render_frame is the whole read-back body of read_output: it maps each render var, converts it through dlpack, and de-tiles it into the output buffers. Tracing it splits read_output into 'wait for the frame' (read_output minus this span) and 'move the pixels' (this span), which is the split needed to tell a render stall from a copy cost.",
         "domain": "OVRTXRenderer",
         "color": "0x76B800",
         "module": "isaaclab_ov.renderers.ovrtx_renderer",
@@ -267,12 +267,13 @@
             "OVRTXRenderer.update_camera",
             "OVRTXRenderer.render",
             "OVRTXRenderer.read_output",
+            "OVRTXRenderer._process_render_frame",
             {"module": "isaaclab_ov.renderers.ovrtx_usd", "function": "create_scene_partition_attributes"},
             {"module": "isaaclab_ov.renderers.ovrtx_usd", "function": "export_stage_to_string"}
         ]
     },
     {
-        "_comment": "=== OVRTX: renderer-side calls made from ovrtx_renderer.py. Renderer.step is the actual submit -- everything else is setup (bind_*, clone_usd, open_usd_from_string, attach/detach_ovstage) or per-frame data movement (write_*). Only Renderer is traced: the other ovrtx imports (BindingFlag, DataAccess, Device, PrimMode, Semantic, RendererConfig) are enum/config classes, and replacing a class with a wrapper function breaks isinstance/type dispatch -- the same failure mode documented on the USD block above. ===",
+        "_comment": "=== OVRTX: renderer-side calls made from ovrtx_renderer.py. Renderer.step is the actual submit -- everything else is setup (bind_*, clone_usd, open_usd_from_string, attach/detach_ovstage) or per-frame data movement (write_*). The RenderVar map/unmap pair brackets every `with frame.render_vars[...].map(...)` in _process_render_frame: map goes through Renderer._map_output and is where the host blocks waiting on the render, unmap runs from MappedRenderVar.__exit__ and blocks on Operation.wait, so both are stalls rather than work -- colored orange to match the ovstage barriers. MappedRenderVar.wait is deliberately absent: nothing in IsaacLab or ovrtx calls it, so it would only add an empty row. Only methods are traced, never the enum/config classes (BindingFlag, DataAccess, Device, PrimMode, Semantic, RendererConfig), since replacing a class with a wrapper function breaks isinstance/type dispatch -- the same failure mode documented on the USD block above. ===",
         "domain": "ovrtx",
         "color": "0x87CEEB",
         "module": "ovrtx",
@@ -287,7 +288,10 @@
             {"function": "Renderer.read_attribute", "color": "0xB8E4F5"},
             {"function": "Renderer.write_attribute", "color": "0x5FB8DC"},
             {"function": "Renderer.write_array_attribute", "color": "0x5FB8DC"},
-            {"function": "Renderer.step", "color": "0x2E9BC0"}
+            {"function": "Renderer.step", "color": "0x2E9BC0"},
+            {"function": "RenderVarOutput.map", "color": "0xFF7043"},
+            {"function": "MappedRenderVar.unmap", "color": "0xFF7043"},
+            {"function": "Operation.wait", "color": "0xFF7043"}
         ]
     },
     {
