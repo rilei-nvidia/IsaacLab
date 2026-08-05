@@ -150,6 +150,8 @@ def _library_path() -> pathlib.Path:
     path = pathlib.Path(ovrtx.__file__).parent / _LIB_RELPATH
     if not path.exists():
         raise SystemExit(f"ovrtx shared library not found at {path}.")
+
+    ovrtx.register_schema_paths()
     return path
 
 
