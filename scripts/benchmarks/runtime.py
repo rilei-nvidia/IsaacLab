@@ -10,11 +10,17 @@ Beyond the entrypoint's own arguments, this launcher accepts::
     --ovrtx_cpu_profile <path.json>     enable the Carbonite CPU profiler
     --ovrtx_profile_steps <n>           steady-state steps to keep (default 20, 0 = keep all)
     --ovrtx_profile_keep_raw            keep the full dump alongside the slice
+    --ovrtx_nvtx                        emit ovrtx zones as NVTX ranges for nsys
 
 Profiling is handled here rather than in the entrypoint because the profiler plugin reads
 its settings when the Carbonite framework starts, so they must be queued before any Isaac
 Lab module is imported. Profiling instrumentation adds per-scope overhead, so throughput
 measured with it enabled is not comparable to an un-profiled run.
+
+``--ovrtx_nvtx`` and ``--ovrtx_cpu_profile`` select different values for the single
+``/app/profilerBackend`` setting, so they are mutually exclusive. The NVTX backend writes no
+file of its own; it emits the same ovrtx zones as NVTX ranges, which only get recorded when
+the process runs under a collector such as ``nsys profile --trace=nvtx``.
 
 The raw dump is large (hundreds of MB) and its final flush does not close the JSON array,
 which some viewers reject. So the profiler writes to ``<path>.raw.json`` and this launcher
@@ -30,6 +36,12 @@ Usage example::
         --task Isaac-Lift-KukaAllegro-Camera --num_envs 1024 --num_steps 150 \\
         presets=newton_mjwarp,ovrtx_renderer,rgb128,single_camera \\
         --ovrtx_cpu_profile profiles/carb_profile.json
+
+    nsys profile --trace=nvtx,cuda,osrt,vulkan --output=profiles/nsys_profile \\
+        .venv/bin/python scripts/benchmarks/runtime.py \\
+            --task Isaac-Lift-KukaAllegro-Camera --num_envs 1024 --num_steps 150 \\
+            presets=newton_mjwarp,ovrtx_renderer,rgb128,single_camera \\
+            --ovrtx_nvtx
 """
 
 from __future__ import annotations
@@ -46,6 +58,7 @@ from typing import IO, Any
 _PROFILE_ARG = "--ovrtx_cpu_profile"
 _STEPS_ARG = "--ovrtx_profile_steps"
 _KEEP_RAW_ARG = "--ovrtx_profile_keep_raw"
+_NVTX_ARG = "--ovrtx_nvtx"
 
 # Profiler mask bit 1 covers ``kSceneRendererContextProfilerMask``; bit 0 is the default
 # application scope. Both are needed to see renderer-side scopes.
@@ -155,35 +168,56 @@ def _library_path() -> pathlib.Path:
     return path
 
 
+def _apply_rtx_settings(settings: list[str]) -> None:
+    """Push Carbonite settings into ovrtx before the framework starts.
+
+    Args:
+        settings: Carbonite setting assignments, each in ``--/path/to/key=value`` form.
+
+    Raises:
+        SystemExit: If the ovrtx library rejects the settings.
+    """
+    library = ctypes.CDLL(str(_library_path()), mode=ctypes.RTLD_GLOBAL)
+    library.applyRTXSettings.argtypes = [_OvxString]
+    library.applyRTXSettings.restype = _OvrtxResult
+
+    encoded = " ".join(settings).encode()
+    result = library.applyRTXSettings(_OvxString(encoded, len(encoded)))
+    if result.status != 0:
+        raise SystemExit(f"Failed to apply OVRTX profiler settings (status={result.status}).")
+
+
 def _enable_ovrtx_cpu_profiler(output_path: pathlib.Path) -> None:
     """Queue the Carbonite CPU-profiler settings so the plugin picks them up at framework startup.
 
     Args:
         output_path: Destination for the uncompressed JSON trace. Parent directories are
             created if needed, since the profiler does not create them itself.
-
-    Raises:
-        SystemExit: If the ovrtx library rejects the profiler settings.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    library = ctypes.CDLL(str(_library_path()), mode=ctypes.RTLD_GLOBAL)
-    library.applyRTXSettings.argtypes = [_OvxString]
-    library.applyRTXSettings.restype = _OvrtxResult
-
-    settings = " ".join([
+    _apply_rtx_settings([
         "--/app/profileFromStart=true",
         "--/app/profilerBackend=cpu",
         f"--/app/profilerMask={_PROFILER_MASK}",
         "--/plugins/carb.profiler-cpu.plugin/saveProfile=true",
         f"--/plugins/carb.profiler-cpu.plugin/filePath={output_path}",
         "--/plugins/carb.profiler-cpu.plugin/compressProfile=false",
-    ]).encode()
-
-    result = library.applyRTXSettings(_OvxString(settings, len(settings)))
-    if result.status != 0:
-        raise SystemExit(f"Failed to apply OVRTX profiler settings (status={result.status}).")
+    ])
     print(f"[benchmark] OVRTX CPU profiler enabled -> {output_path}", flush=True)
+
+
+def _enable_ovrtx_nvtx() -> None:
+    """Queue the Carbonite NVTX-backend settings so ovrtx zones become NVTX ranges.
+
+    Unlike the CPU backend this writes no file: the zones are emitted as NVTX ranges that
+    an external collector picks up, so it is only useful under ``nsys profile --trace=nvtx``.
+    """
+    _apply_rtx_settings([
+        "--/app/profileFromStart=true",
+        "--/app/profilerBackend=nvtx",
+        f"--/app/profilerMask={_PROFILER_MASK}",
+    ])
+    print("[benchmark] OVRTX NVTX markers enabled (capture with nsys --trace=nvtx)", flush=True)
 
 
 """
@@ -300,6 +334,14 @@ if __name__ == "__main__":
     profile_path, argv = _pop_option(argv, _PROFILE_ARG)
     steps_value, argv = _pop_option(argv, _STEPS_ARG)
     keep_raw, argv = _pop_flag(argv, _KEEP_RAW_ARG)
+    nvtx, argv = _pop_flag(argv, _NVTX_ARG)
+
+    # profilerBackend takes a single value, so the two backends cannot both be active.
+    if nvtx and profile_path is not None:
+        raise SystemExit(f"{_NVTX_ARG} and {_PROFILE_ARG} select different profiler backends; pick one.")
+
+    if nvtx:
+        _enable_ovrtx_nvtx()
 
     if profile_path is not None:
         profile_dst = pathlib.Path(profile_path).expanduser().absolute()
